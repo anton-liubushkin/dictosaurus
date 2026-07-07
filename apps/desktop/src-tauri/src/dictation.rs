@@ -131,16 +131,19 @@ pub fn hotkey_released(app: &AppHandle) {
                     log::warn!("[dictation] paste failed (text is in clipboard): {e}");
                 }
                 emit_state(&app, "inserted", Some(text), None);
-                finish(&app, 900).await;
+                // The text is already on screen; just a brief confirmation
+                // flash so the orb never feels like it blocks the UI.
+                finish(&app, 200).await;
             }
             Ok(None) => {
                 log::info!("[dictation] nothing to insert (too short or empty)");
                 emit_state(&app, "canceled", None, None);
-                finish(&app, 400).await;
+                finish(&app, 200).await;
             }
             Err(e) => {
                 log::error!("[dictation] {e}");
                 emit_state(&app, "error", None, Some(e));
+                // Long enough to read that something failed.
                 finish(&app, 2000).await;
             }
         }
@@ -192,8 +195,15 @@ fn spawn_level_task(app: AppHandle) {
 /// session right away), then hides the overlay after `delay_ms` — unless a
 /// new session has shown the overlay again in the meantime.
 async fn finish(app: &AppHandle, delay_ms: u64) {
+    // Capture the generation BEFORE going idle: a new session can only start
+    // after set_idle, and its bump must invalidate this pending hide.
+    let generation = app
+        .state::<AppState>()
+        .dictation
+        .generation
+        .load(Ordering::SeqCst);
     set_idle(app);
-    hide_overlay_after(app.clone(), delay_ms).await;
+    hide_overlay_after(app.clone(), delay_ms, generation).await;
 }
 
 fn set_idle(app: &AppHandle) {
@@ -204,22 +214,17 @@ fn set_idle(app: &AppHandle) {
 /// Shows the overlay briefly (used for error feedback outside a session).
 fn flash_overlay(app: &AppHandle, ms: u64) {
     let state = app.state::<AppState>();
-    state.dictation.generation.fetch_add(1, Ordering::SeqCst);
+    let generation = state.dictation.generation.fetch_add(1, Ordering::SeqCst) + 1;
     overlay::show(app);
     let app = app.clone();
     tauri::async_runtime::spawn(async move {
-        hide_overlay_after(app, ms).await;
+        hide_overlay_after(app, ms, generation).await;
     });
 }
 
 /// Hides the overlay after a delay, but only if no newer session/flash has
 /// shown it again while we slept (each show bumps the generation counter).
-async fn hide_overlay_after(app: AppHandle, delay_ms: u64) {
-    let generation = app
-        .state::<AppState>()
-        .dictation
-        .generation
-        .load(Ordering::SeqCst);
+async fn hide_overlay_after(app: AppHandle, delay_ms: u64, generation: u64) {
     tokio::time::sleep(Duration::from_millis(delay_ms)).await;
     let current = app
         .state::<AppState>()
