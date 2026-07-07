@@ -5,9 +5,16 @@ export type AppSettings = {
   modelId: string;
   language: string;
   uiLanguage: string;
+  /** Show live transcription in the overlay (streaming models only). */
+  livePreview: boolean;
 };
 
-export type ModelEngine = "whisper" | "nemo_ctc" | "nemo_transducer";
+export type ModelEngine =
+  | "whisper"
+  | "nemo_ctc"
+  | "nemo_transducer"
+  | "tone_ctc"
+  | "online_transducer";
 
 export type ModelInfo = {
   id: string;
@@ -16,6 +23,8 @@ export type ModelInfo = {
   description: string;
   engine: ModelEngine;
   languages: string;
+  /** Decodes incrementally and supports live preview. */
+  streaming: boolean;
   downloaded: boolean;
 };
 

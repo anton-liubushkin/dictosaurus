@@ -9,8 +9,10 @@
 use tauri::{AppHandle, Manager};
 
 pub const LABEL: &str = "overlay";
-const WIDTH: f64 = 200.0;
-const HEIGHT: f64 = 200.0;
+// Wide enough for the live-transcription pill next to the orb; the window is
+// transparent and click-through, so the extra area is invisible.
+const WIDTH: f64 = 560.0;
+const HEIGHT: f64 = 270.0;
 const BOTTOM_MARGIN: f64 = 40.0;
 
 #[cfg(target_os = "macos")]

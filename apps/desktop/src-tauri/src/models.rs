@@ -32,6 +32,17 @@ pub enum Engine {
     Whisper,
     NemoCtc,
     NemoTransducer,
+    /// Streaming T-one CTC (sherpa-onnx online recognizer, 8 kHz features).
+    ToneCtc,
+    /// Streaming transducer (NeMo cache-aware fast-conformer, Nemotron, …).
+    OnlineTransducer,
+}
+
+impl Engine {
+    /// Whether the engine decodes incrementally and can power live preview.
+    pub fn is_streaming(self) -> bool {
+        matches!(self, Engine::ToneCtc | Engine::OnlineTransducer)
+    }
 }
 
 #[derive(Clone, Debug)]
@@ -159,6 +170,58 @@ static CURATED: Lazy<Vec<ModelDef>> = Lazy::new(|| {
                 },
             ],
         },
+        ModelDef {
+            id: "t-one-streaming-ru".into(),
+            label: "T-one (T-Bank)".into(),
+            size_label: "~144 MB".into(),
+            description: "Russian with live preview: streaming, no punctuation".into(),
+            engine: Engine::ToneCtc,
+            languages: "ru".into(),
+            feature_dim: None,
+            files: vec![
+                ModelFile {
+                    rel_path: "t-one-streaming-ru.onnx".into(),
+                    url: "https://huggingface.co/csukuangfj/sherpa-onnx-streaming-t-one-russian-2025-09-08/resolve/main/model.onnx".into(),
+                    bytes_hint: 144_193_702,
+                },
+                ModelFile {
+                    rel_path: "t-one-streaming-ru.tokens.txt".into(),
+                    url: "https://huggingface.co/csukuangfj/sherpa-onnx-streaming-t-one-russian-2025-09-08/resolve/main/tokens.txt".into(),
+                    bytes_hint: 202,
+                },
+            ],
+        },
+        ModelDef {
+            id: "nemo-streaming-fast-conformer-en".into(),
+            label: "FastConformer Streaming (NVIDIA)".into(),
+            size_label: "~137 MB".into(),
+            description: "English with live preview: streaming, no punctuation".into(),
+            engine: Engine::OnlineTransducer,
+            languages: "en".into(),
+            feature_dim: None,
+            files: vec![
+                ModelFile {
+                    rel_path: "nemo-streaming-fc-en.encoder.int8.onnx".into(),
+                    url: "https://huggingface.co/csukuangfj/sherpa-onnx-nemo-streaming-fast-conformer-transducer-en-480ms-int8/resolve/main/encoder.int8.onnx".into(),
+                    bytes_hint: 131_507_603,
+                },
+                ModelFile {
+                    rel_path: "nemo-streaming-fc-en.decoder.int8.onnx".into(),
+                    url: "https://huggingface.co/csukuangfj/sherpa-onnx-nemo-streaming-fast-conformer-transducer-en-480ms-int8/resolve/main/decoder.int8.onnx".into(),
+                    bytes_hint: 3_955_864,
+                },
+                ModelFile {
+                    rel_path: "nemo-streaming-fc-en.joiner.int8.onnx".into(),
+                    url: "https://huggingface.co/csukuangfj/sherpa-onnx-nemo-streaming-fast-conformer-transducer-en-480ms-int8/resolve/main/joiner.int8.onnx".into(),
+                    bytes_hint: 1_408_182,
+                },
+                ModelFile {
+                    rel_path: "nemo-streaming-fc-en.tokens.txt".into(),
+                    url: "https://huggingface.co/csukuangfj/sherpa-onnx-nemo-streaming-fast-conformer-transducer-en-480ms-int8/resolve/main/tokens.txt".into(),
+                    bytes_hint: 11_896,
+                },
+            ],
+        },
         whisper_model(
             "tiny",
             "Tiny",
@@ -263,6 +326,7 @@ pub struct ModelInfo {
     pub description: String,
     pub engine: Engine,
     pub languages: String,
+    pub streaming: bool,
     pub downloaded: bool,
 }
 
@@ -276,6 +340,7 @@ pub fn catalog_status() -> Vec<ModelInfo> {
             description: d.description.clone(),
             engine: d.engine,
             languages: d.languages.clone(),
+            streaming: d.engine.is_streaming(),
             downloaded: resolve_paths(d).is_some(),
         })
         .collect()

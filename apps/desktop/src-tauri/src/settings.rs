@@ -15,6 +15,9 @@ pub struct AppSettings {
     pub language: String,
     /// UI language preference: "auto", "en" or "ru".
     pub ui_language: String,
+    /// Show live transcription in the overlay while recording.
+    /// Only takes effect with a streaming-capable model.
+    pub live_preview: bool,
 }
 
 impl Default for AppSettings {
@@ -24,6 +27,7 @@ impl Default for AppSettings {
             model_id: "base".into(),
             language: "auto".into(),
             ui_language: "auto".into(),
+            live_preview: true,
         }
     }
 }

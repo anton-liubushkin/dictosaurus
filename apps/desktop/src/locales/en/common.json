@@ -27,7 +27,10 @@
     "hotkeyDetail": "Hold to record, release to insert",
     "language": "Language",
     "languageDetail": "Spoken language, or auto-detect",
-    "languageAuto": "Auto-detect"
+    "languageAuto": "Auto-detect",
+    "livePreview": "Show live transcription",
+    "livePreviewDetail": "Text appears in the overlay while you speak",
+    "livePreviewUnsupported": "The selected model does not support live transcription — pick one with the Live badge"
   },
   "hotkeyRecorder": {
     "capturing": "Press a shortcut, or hold 2+ modifier keys and release… (Esc to cancel)"
@@ -38,9 +41,12 @@
     "delete": "Delete",
     "badge": {
       "ru": "Russian",
-      "multilingual": "Multilingual"
+      "multilingual": "Multilingual",
+      "live": "Live"
     },
     "description": {
+      "t-one-streaming-ru": "Russian with live preview: streaming, no punctuation (T-Bank)",
+      "nemo-streaming-fast-conformer-en": "English with live preview: streaming, no punctuation (NVIDIA)",
       "gigaam-v3-e2e-ctc": "Best for Russian: SOTA accuracy with punctuation (Sber)",
       "whisper-podlodka-turbo": "Whisper Large v3 Turbo fine-tuned for Russian, with punctuation (bond005)",
       "parakeet-tdt-0.6b-v3": "Best for European languages: 25 languages with punctuation (NVIDIA)",

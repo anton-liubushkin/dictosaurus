@@ -108,6 +108,16 @@ export default function SettingsView() {
     };
   }, []);
 
+  const activeModel = useMemo(() => {
+    if (!settings) return null;
+    return (
+      models.find((m) => m.id === settings.modelId) ??
+      hfCatalog?.models.find((m) => m.id === settings.modelId) ??
+      null
+    );
+  }, [models, hfCatalog, settings]);
+  const activeStreaming = !!activeModel?.streaming;
+
   const filteredHfModels = useMemo(() => {
     if (!hfCatalog) return [];
     const query = hfSearch.trim().toLowerCase();
@@ -251,6 +261,27 @@ export default function SettingsView() {
               </option>
             ))}
           </select>
+        </div>
+
+        <div className={styles.row}>
+          <div>
+            <div className={styles.rowLabel}>{t("dictation.livePreview")}</div>
+            <div className={styles.rowDetail}>
+              {activeStreaming
+                ? t("dictation.livePreviewDetail")
+                : t("dictation.livePreviewUnsupported")}
+            </div>
+          </div>
+          <button
+            type="button"
+            role="switch"
+            aria-checked={settings.livePreview}
+            disabled={!activeStreaming}
+            className={`${styles.toggle} ${settings.livePreview ? styles.toggleOn : ""}`}
+            onClick={() => save({ livePreview: !settings.livePreview })}
+          >
+            <span className={styles.toggleKnob} />
+          </button>
         </div>
       </Section>
 
@@ -409,6 +440,8 @@ function UpdatedHint({ generatedAt }: { generatedAt: number }) {
 const ENGINE_BADGES: Partial<Record<ModelInfo["engine"], string>> = {
   nemo_ctc: "CTC",
   nemo_transducer: "Transducer",
+  tone_ctc: "CTC",
+  online_transducer: "Transducer",
 };
 
 function ModelRow({
@@ -461,6 +494,11 @@ function ModelRow({
             >
               {languageBadge}
             </span>
+            {model.streaming && (
+              <span className={`${styles.badge} ${styles.badgeLive}`}>
+                {t("models.badge.live")}
+              </span>
+            )}
             {showEngine && ENGINE_BADGES[model.engine] && (
               <span className={styles.badge}>{ENGINE_BADGES[model.engine]}</span>
             )}

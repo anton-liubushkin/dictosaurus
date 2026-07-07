@@ -1,5 +1,5 @@
 {
-  "generatedAt": 1783407074,
+  "generatedAt": 1783427737,
   "models": [
     {
       "repoId": "csukuangfj/sherpa-onnx-nemo-ctc-de-conformer-large",
@@ -517,6 +517,156 @@
       ]
     },
     {
+      "repoId": "csukuangfj/sherpa-onnx-nemo-streaming-fast-conformer-transducer-en-1040ms",
+      "label": "nemo-streaming-fast-conformer-transducer-en-1040ms",
+      "engine": "online_transducer",
+      "languages": "en",
+      "totalBytes": 478121194,
+      "files": [
+        {
+          "path": "encoder.onnx",
+          "size": 456772178
+        },
+        {
+          "path": "decoder.onnx",
+          "size": 15753086
+        },
+        {
+          "path": "joiner.onnx",
+          "size": 5584034
+        },
+        {
+          "path": "tokens.txt",
+          "size": 11896
+        }
+      ]
+    },
+    {
+      "repoId": "csukuangfj/sherpa-onnx-nemo-streaming-fast-conformer-transducer-en-1040ms-int8",
+      "label": "nemo-streaming-fast-conformer-transducer-en-1040ms-int8",
+      "engine": "online_transducer",
+      "languages": "en",
+      "totalBytes": 136883557,
+      "files": [
+        {
+          "path": "encoder.int8.onnx",
+          "size": 131507616
+        },
+        {
+          "path": "decoder.int8.onnx",
+          "size": 3955864
+        },
+        {
+          "path": "joiner.int8.onnx",
+          "size": 1408181
+        },
+        {
+          "path": "tokens.txt",
+          "size": 11896
+        }
+      ]
+    },
+    {
+      "repoId": "csukuangfj/sherpa-onnx-nemo-streaming-fast-conformer-transducer-en-480ms",
+      "label": "nemo-streaming-fast-conformer-transducer-en-480ms",
+      "engine": "online_transducer",
+      "languages": "en",
+      "totalBytes": 478121191,
+      "files": [
+        {
+          "path": "encoder.onnx",
+          "size": 456772175
+        },
+        {
+          "path": "decoder.onnx",
+          "size": 15753086
+        },
+        {
+          "path": "joiner.onnx",
+          "size": 5584034
+        },
+        {
+          "path": "tokens.txt",
+          "size": 11896
+        }
+      ]
+    },
+    {
+      "repoId": "csukuangfj/sherpa-onnx-nemo-streaming-fast-conformer-transducer-en-480ms-int8",
+      "label": "nemo-streaming-fast-conformer-transducer-en-480ms-int8",
+      "engine": "online_transducer",
+      "languages": "en",
+      "totalBytes": 136883545,
+      "files": [
+        {
+          "path": "encoder.int8.onnx",
+          "size": 131507603
+        },
+        {
+          "path": "decoder.int8.onnx",
+          "size": 3955864
+        },
+        {
+          "path": "joiner.int8.onnx",
+          "size": 1408182
+        },
+        {
+          "path": "tokens.txt",
+          "size": 11896
+        }
+      ]
+    },
+    {
+      "repoId": "csukuangfj/sherpa-onnx-nemo-streaming-fast-conformer-transducer-en-80ms",
+      "label": "nemo-streaming-fast-conformer-transducer-en-80ms",
+      "engine": "online_transducer",
+      "languages": "en",
+      "totalBytes": 478121190,
+      "files": [
+        {
+          "path": "encoder.onnx",
+          "size": 456772174
+        },
+        {
+          "path": "decoder.onnx",
+          "size": 15753086
+        },
+        {
+          "path": "joiner.onnx",
+          "size": 5584034
+        },
+        {
+          "path": "tokens.txt",
+          "size": 11896
+        }
+      ]
+    },
+    {
+      "repoId": "csukuangfj/sherpa-onnx-nemo-streaming-fast-conformer-transducer-en-80ms-int8",
+      "label": "nemo-streaming-fast-conformer-transducer-en-80ms-int8",
+      "engine": "online_transducer",
+      "languages": "en",
+      "totalBytes": 136883520,
+      "files": [
+        {
+          "path": "encoder.int8.onnx",
+          "size": 131507579
+        },
+        {
+          "path": "decoder.int8.onnx",
+          "size": 3955863
+        },
+        {
+          "path": "joiner.int8.onnx",
+          "size": 1408182
+        },
+        {
+          "path": "tokens.txt",
+          "size": 11896
+        }
+      ]
+    },
+    {
       "repoId": "csukuangfj/sherpa-onnx-nemo-stt_de_fastconformer_hybrid_large_pc",
       "label": "nemo-stt_de_fastconformer_hybrid_large_pc",
       "engine": "nemo_ctc",
@@ -781,6 +931,73 @@
         {
           "path": "tokens.txt",
           "size": 795
+        }
+      ]
+    },
+    {
+      "repoId": "csukuangfj/sherpa-onnx-nemotron-speech-streaming-en-0.6b-2026-01-14",
+      "label": "nemotron-speech-streaming-en-0.6b-2026-01-14",
+      "engine": "online_transducer",
+      "languages": "en",
+      "totalBytes": 77822127,
+      "files": [
+        {
+          "path": "encoder.onnx",
+          "size": 42034756
+        },
+        {
+          "path": "decoder.onnx",
+          "size": 28883663
+        },
+        {
+          "path": "joiner.onnx",
+          "size": 6894756
+        },
+        {
+          "path": "tokens.txt",
+          "size": 8952
+        }
+      ]
+    },
+    {
+      "repoId": "csukuangfj/sherpa-onnx-nemotron-speech-streaming-en-0.6b-int8-2026-01-14",
+      "label": "nemotron-speech-streaming-en-0.6b-int8-2026-01-14",
+      "engine": "online_transducer",
+      "languages": "en",
+      "totalBytes": 661919397,
+      "files": [
+        {
+          "path": "encoder.int8.onnx",
+          "size": 652916830
+        },
+        {
+          "path": "decoder.int8.onnx",
+          "size": 7257753
+        },
+        {
+          "path": "joiner.int8.onnx",
+          "size": 1735862
+        },
+        {
+          "path": "tokens.txt",
+          "size": 8952
+        }
+      ]
+    },
+    {
+      "repoId": "csukuangfj/sherpa-onnx-streaming-t-one-russian-2025-09-08",
+      "label": "streaming-t-one-russian-2025-09-08",
+      "engine": "tone_ctc",
+      "languages": "ru",
+      "totalBytes": 144193904,
+      "files": [
+        {
+          "path": "model.onnx",
+          "size": 144193702
+        },
+        {
+          "path": "tokens.txt",
+          "size": 202
         }
       ]
     }

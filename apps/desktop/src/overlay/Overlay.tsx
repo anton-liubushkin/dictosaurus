@@ -114,20 +114,29 @@ export default function Overlay() {
   const { t } = useTranslation("common");
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const [phase, setPhase] = useState<DictationPhase>("idle");
+  const [partial, setPartial] = useState("");
   const phaseRef = useRef<DictationPhase>("idle");
   const levelRef = useRef(0);
 
   useEffect(() => {
     const unState = listen<DictationState>("dictation-state", (event) => {
-      phaseRef.current = event.payload.phase;
-      setPhase(event.payload.phase);
+      const next = event.payload.phase;
+      phaseRef.current = next;
+      setPhase(next);
+      // A new session starts clean; the pill stays through "transcribing" so
+      // the last hypothesis remains visible while the final text is prepared.
+      if (next !== "transcribing") setPartial("");
     });
     const unLevel = listen<number>("audio-level", (event) => {
       levelRef.current = event.payload;
     });
+    const unPartial = listen<string>("dictation-partial", (event) => {
+      setPartial(event.payload);
+    });
     return () => {
       unState.then((fn) => fn());
       unLevel.then((fn) => fn());
+      unPartial.then((fn) => fn());
     };
   }, []);
 
@@ -161,9 +170,18 @@ export default function Overlay() {
   const visible = phase !== "idle" && phase !== "canceled";
   const labelKey = LABEL_KEYS[phase];
   const label = labelKey ? t(labelKey) : "";
+  const showPartial =
+    partial !== "" && (phase === "recording" || phase === "transcribing");
 
   return (
     <div className={`${styles.root} ${visible ? "" : styles.hidden}`}>
+      {showPartial && (
+        <div className={styles.partial}>
+          <div className={styles.partialClip}>
+            <div className={styles.partialText}>{partial}</div>
+          </div>
+        </div>
+      )}
       <canvas
         ref={canvasRef}
         className={styles.canvas}

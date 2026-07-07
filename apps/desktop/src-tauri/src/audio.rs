@@ -4,6 +4,10 @@
 //! (cpal streams are not `Send`), downmixed to mono, and buffered in memory.
 //! A live RMS level is published through an atomic for the overlay
 //! visualization. Resampling to whisper's 16 kHz happens once, after capture.
+//!
+//! An optional tap receives every mono chunk as it is captured (still at the
+//! native sample rate) — the live-preview decoder consumes it. The tap sender
+//! is dropped together with the stream, closing the receiving channel.
 
 use cpal::traits::{DeviceTrait, HostTrait, StreamTrait};
 use std::sync::atomic::{AtomicU32, Ordering};
@@ -38,7 +42,13 @@ impl RecorderHandle {
     }
 }
 
-pub fn start_recording() -> Result<RecorderHandle, String> {
+/// Mono chunks at the capture sample rate, delivered as they arrive.
+pub struct AudioTap {
+    pub sample_rate_tx: mpsc::Sender<u32>,
+    pub chunk_tx: mpsc::Sender<Vec<f32>>,
+}
+
+pub fn start_recording(tap: Option<AudioTap>) -> Result<RecorderHandle, String> {
     let (stop_tx, stop_rx) = mpsc::channel::<()>();
     let (ready_tx, ready_rx) = mpsc::channel::<Result<(), String>>();
     let level = Arc::new(AtomicU32::new(0));
@@ -46,7 +56,7 @@ pub fn start_recording() -> Result<RecorderHandle, String> {
 
     let join = std::thread::Builder::new()
         .name("audio-capture".into())
-        .spawn(move || capture_thread(stop_rx, ready_tx, thread_level))
+        .spawn(move || capture_thread(stop_rx, ready_tx, thread_level, tap))
         .map_err(|e| format!("spawn audio thread: {e}"))?;
 
     match ready_rx.recv() {
@@ -70,6 +80,7 @@ fn capture_thread(
     stop_rx: mpsc::Receiver<()>,
     ready_tx: mpsc::Sender<Result<(), String>>,
     level: Arc<AtomicU32>,
+    tap: Option<AudioTap>,
 ) -> Result<RecordedAudio, String> {
     let buffer: Arc<Mutex<Vec<f32>>> = Arc::new(Mutex::new(Vec::new()));
 
@@ -86,15 +97,23 @@ fn capture_thread(
         let channels = config.channels as usize;
         let sample_rate = config.sample_rate;
 
+        let chunk_tx = tap.map(|t| {
+            let _ = t.sample_rate_tx.send(sample_rate);
+            t.chunk_tx
+        });
+
         let err_fn = |e| log::warn!("[audio] stream error: {e}");
 
         macro_rules! stream_for {
             ($t:ty, $conv:expr) => {{
                 let buf = buffer.clone();
                 let level = level.clone();
+                let chunk_tx = chunk_tx.clone();
                 device.build_input_stream(
                     config.clone(),
-                    move |data: &[$t], _| push_frames(data.iter().map($conv), channels, &buf, &level),
+                    move |data: &[$t], _| {
+                        push_frames(data.iter().map($conv), channels, &buf, &level, &chunk_tx)
+                    },
                     err_fn,
                     None,
                 )
@@ -138,6 +157,7 @@ fn push_frames<I: Iterator<Item = f32>>(
     channels: usize,
     buffer: &Mutex<Vec<f32>>,
     level: &AtomicU32,
+    chunk_tx: &Option<mpsc::Sender<Vec<f32>>>,
 ) {
     let mut guard = buffer.lock().unwrap();
     let start = guard.len();
@@ -162,6 +182,9 @@ fn push_frames<I: Iterator<Item = f32>>(
     if !chunk.is_empty() {
         let rms = (chunk.iter().map(|s| s * s).sum::<f32>() / chunk.len() as f32).sqrt();
         level.store(rms.to_bits(), Ordering::Relaxed);
+        if let Some(tx) = chunk_tx {
+            let _ = tx.send(chunk.to_vec());
+        }
     }
 }
 

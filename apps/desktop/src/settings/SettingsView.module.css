@@ -376,3 +376,13 @@
 .toggleOn .toggleKnob {
   transform: translateX(16px);
 }
+
+.toggle:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
+
+.badgeLive {
+  color: #2fe38f;
+  background: rgba(47, 227, 143, 0.14);
+}
