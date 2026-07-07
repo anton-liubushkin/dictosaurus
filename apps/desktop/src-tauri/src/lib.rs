@@ -88,6 +88,8 @@ pub fn run() {
             commands::list_hf_models,
             commands::download_model,
             commands::delete_model,
+            hotkey::start_hotkey_capture,
+            hotkey::stop_hotkey_capture,
         ])
         .build(tauri::generate_context!())
         .expect("error while building tauri application")

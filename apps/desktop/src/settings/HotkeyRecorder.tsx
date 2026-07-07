@@ -1,4 +1,6 @@
 import { useEffect, useRef, useState } from "react";
+import { invoke } from "@tauri-apps/api/core";
+import { listen } from "@tauri-apps/api/event";
 import { useTranslation } from "react-i18next";
 import styles from "./SettingsView.module.css";
 
@@ -12,12 +14,12 @@ const MODIFIER_CODES = new Set([
   "ShiftLeft",
   "ShiftRight",
   "CapsLock",
-  "Fn",
 ]);
 
-const MODIFIER_ORDER = ["Ctrl", "Alt", "Shift", "Super"] as const;
+const MODIFIER_ORDER = ["Fn", "Ctrl", "Alt", "Shift", "Super"] as const;
 
 const MAC_SYMBOLS: Record<string, string> = {
+  Fn: "fn",
   Ctrl: "⌃",
   Alt: "⌥",
   Shift: "⇧",
@@ -79,6 +81,23 @@ export default function HotkeyRecorder({ value, onChange }: Props) {
     capturingRef.current = true;
     maxModsRef.current = new Set();
 
+    // WebKit never delivers the Fn (Globe) key to the DOM, so the backend
+    // streams the held modifier set (incl. Fn) from a CGEventTap while we
+    // capture. When the tap is active it owns modifier-only tracking; the
+    // DOM keyup path stays as a fallback (e.g. tap creation failed).
+    let rustAssist = false;
+
+    const finalizeModifierOnly = () => {
+      const max = maxModsRef.current;
+      if (max.size >= 2) {
+        setCapturing(false);
+        onChange(MODIFIER_ORDER.filter((m) => max.has(m)).join("+"));
+      } else {
+        // Too few modifiers for a modifier-only combo — keep capturing.
+        maxModsRef.current = new Set();
+      }
+    };
+
     const onKeyDown = (e: KeyboardEvent) => {
       e.preventDefault();
       e.stopPropagation();
@@ -86,9 +105,11 @@ export default function HotkeyRecorder({ value, onChange }: Props) {
         setCapturing(false);
         return;
       }
-      const held = heldModifiers(e);
-      if (held.length > maxModsRef.current.size) {
-        maxModsRef.current = new Set(held);
+      if (!rustAssist) {
+        const held = heldModifiers(e);
+        if (held.length > maxModsRef.current.size) {
+          maxModsRef.current = new Set(held);
+        }
       }
       const combo = comboFromEvent(e);
       if (combo) {
@@ -100,23 +121,45 @@ export default function HotkeyRecorder({ value, onChange }: Props) {
     const onKeyUp = (e: KeyboardEvent) => {
       e.preventDefault();
       e.stopPropagation();
+      if (rustAssist) return;
       if (heldModifiers(e).length > 0) return;
-      const max = maxModsRef.current;
-      if (max.size >= 2) {
-        setCapturing(false);
-        onChange(MODIFIER_ORDER.filter((m) => max.has(m)).join("+"));
-      } else {
-        // Too few modifiers for a modifier-only combo — keep capturing.
-        maxModsRef.current = new Set();
-      }
+      finalizeModifierOnly();
     };
+
+    const onBlur = () => setCapturing(false);
+
+    let disposed = false;
+    let unlisten: (() => void) | undefined;
+    invoke("start_hotkey_capture")
+      .then(async () => {
+        rustAssist = true;
+        const fn = await listen<string[]>("hotkey-capture-update", (event) => {
+          if (!capturingRef.current) return;
+          const held = event.payload;
+          if (held.length > maxModsRef.current.size) {
+            maxModsRef.current = new Set(held);
+          }
+          if (held.length === 0) finalizeModifierOnly();
+        });
+        if (disposed) fn();
+        else unlisten = fn;
+      })
+      .catch(() => {
+        // No capture assist (e.g. not macOS) — DOM-only capture still works
+        // for everything except Fn.
+      });
 
     window.addEventListener("keydown", onKeyDown, true);
     window.addEventListener("keyup", onKeyUp, true);
+    window.addEventListener("blur", onBlur);
     return () => {
       capturingRef.current = false;
+      disposed = true;
       window.removeEventListener("keydown", onKeyDown, true);
       window.removeEventListener("keyup", onKeyUp, true);
+      window.removeEventListener("blur", onBlur);
+      unlisten?.();
+      invoke("stop_hotkey_capture").catch(() => {});
     };
   }, [capturing, onChange]);
 
