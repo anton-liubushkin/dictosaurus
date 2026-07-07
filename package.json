@@ -1,0 +1,9 @@
+{
+  "name": "dictosaurus",
+  "private": true,
+  "scripts": {
+    "desktop:dev": "pnpm --filter desktop tauri:dev",
+    "desktop:build": "pnpm --filter desktop tauri:build"
+  },
+  "packageManager": "pnpm@9.15.9"
+}

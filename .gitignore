@@ -1,0 +1,10 @@
+node_modules/
+dist/
+target/
+.DS_Store
+*.log
+.env
+.env.local
+
+# Tauri generated schemas
+apps/desktop/src-tauri/gen/
