@@ -9,10 +9,12 @@ use tauri::{AppHandle, Manager};
 pub struct AppSettings {
     /// Push-to-talk shortcut in `tauri-plugin-global-shortcut` format, e.g. "Alt+Space".
     pub hotkey: String,
-    /// Whisper model id from the catalog in `models.rs`.
+    /// Model id from the catalog in `models.rs`.
     pub model_id: String,
-    /// Whisper language code or "auto".
+    /// Recognition language: whisper language code or "auto".
     pub language: String,
+    /// UI language preference: "auto", "en" or "ru".
+    pub ui_language: String,
 }
 
 impl Default for AppSettings {
@@ -21,6 +23,7 @@ impl Default for AppSettings {
             hotkey: "Alt+Space".into(),
             model_id: "base".into(),
             language: "auto".into(),
+            ui_language: "auto".into(),
         }
     }
 }

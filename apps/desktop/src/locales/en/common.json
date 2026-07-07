@@ -1,0 +1,69 @@
+{
+  "app": {
+    "name": "Dictosaurus",
+    "tagline": "Local AI dictation — your voice never leaves this Mac"
+  },
+  "hint": {
+    "beforeKey": "Hold",
+    "afterKey": ", speak, release — the text is inserted into the active input and copied to the clipboard."
+  },
+  "section": {
+    "permissions": "Permissions",
+    "dictation": "Dictation",
+    "models": "Models",
+    "general": "General"
+  },
+  "permissions": {
+    "microphone": "Microphone",
+    "microphoneDetail": "Required to record your dictation",
+    "accessibility": "Accessibility",
+    "accessibilityDetail": "Required to insert text into the active app",
+    "grant": "Grant",
+    "granted": "Granted"
+  },
+  "dictation": {
+    "hotkey": "Push-to-talk hotkey",
+    "hotkeyDetail": "Hold to record, release to insert",
+    "language": "Language",
+    "languageDetail": "Spoken language, or auto-detect",
+    "languageAuto": "Auto-detect"
+  },
+  "hotkeyRecorder": {
+    "capturing": "Press shortcut… (Esc to cancel)"
+  },
+  "models": {
+    "note": "Models run fully on-device. Bigger models are more accurate but slower. GigaAM v3 by Sber is the most accurate option for Russian.",
+    "download": "Download",
+    "delete": "Delete",
+    "badge": {
+      "ru": "Russian",
+      "multilingual": "Multilingual"
+    },
+    "description": {
+      "gigaam-v3-e2e-ctc": "Best for Russian: SOTA accuracy with punctuation (Sber)",
+      "tiny": "Fastest, lowest accuracy",
+      "base": "Fast, decent for short phrases",
+      "small": "Balanced speed and accuracy",
+      "medium": "Slower, high accuracy",
+      "large-v3-turbo-q5_0": "Great accuracy, compact and fast",
+      "large-v3-turbo": "Best multilingual accuracy"
+    }
+  },
+  "general": {
+    "interfaceLanguage": "Interface language",
+    "interfaceLanguageDetail": "Automatic uses your system language",
+    "interfaceLanguageOption": {
+      "auto": "Automatic",
+      "en": "English",
+      "ru": "Russian"
+    },
+    "autostart": "Launch at login",
+    "autostartDetail": "Start Dictosaurus automatically"
+  },
+  "overlay": {
+    "listening": "Listening",
+    "transcribing": "Transcribing…",
+    "inserted": "Inserted",
+    "error": "Error"
+  }
+}

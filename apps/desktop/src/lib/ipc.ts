@@ -4,13 +4,18 @@ export type AppSettings = {
   hotkey: string;
   modelId: string;
   language: string;
+  uiLanguage: string;
 };
+
+export type ModelEngine = "whisper" | "gigaam";
 
 export type ModelInfo = {
   id: string;
   label: string;
   sizeLabel: string;
   description: string;
+  engine: ModelEngine;
+  languages: string;
   downloaded: boolean;
 };
 

@@ -2,7 +2,14 @@
 
 Local AI dictation for desktop. Hold a hotkey, speak, release — the transcribed
 text is inserted into the active input and copied to the clipboard. Speech
-recognition runs fully on-device (whisper.cpp with Metal acceleration).
+recognition runs fully on-device:
+
+- **Whisper** (whisper.cpp with Metal acceleration) — multilingual models
+- **GigaAM v3 by Sber** (ONNX via sherpa-onnx) — state-of-the-art Russian
+  recognition with punctuation
+
+The UI is localized (English/Russian) and follows the system language by
+default.
 
 ## Monorepo layout
 
@@ -23,7 +30,7 @@ pnpm desktop:dev
 ## How it works
 
 1. The app lives in the menu bar (tray). The settings window lets you download
-   Whisper models, pick the active model, language and the push-to-talk hotkey.
+   speech models, pick the active model, language and the push-to-talk hotkey.
 2. Holding the hotkey records the microphone and shows a voice-reactive orb
    overlay (an NSPanel on macOS, so it renders above fullscreen apps too).
 3. On release the audio is transcribed locally, the text is copied to the

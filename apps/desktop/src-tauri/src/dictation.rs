@@ -53,7 +53,7 @@ pub fn hotkey_pressed(app: &AppHandle) {
     let state = app.state::<AppState>();
     let settings = state.settings.lock().unwrap().current().clone();
 
-    if models::resolve_model_path(&settings.model_id).is_none() {
+    if !models::is_downloaded(&settings.model_id) {
         crate::tray::show_settings(app);
         emit_state(
             app,
@@ -159,10 +159,7 @@ fn run_pipeline(
     }
 
     let pcm = audio::resample(&recorded.samples, recorded.sample_rate, 16_000);
-    let model_path = models::resolve_model_path(&settings.model_id)
-        .ok_or_else(|| "model file is missing".to_string())?;
-
-    let text = transcribe::transcribe(&model_path, &settings.language, &pcm)?;
+    let text = transcribe::transcribe(&settings.model_id, &settings.language, &pcm)?;
     let text = text.split_whitespace().collect::<Vec<_>>().join(" ");
     Ok((!text.is_empty()).then_some(text))
 }

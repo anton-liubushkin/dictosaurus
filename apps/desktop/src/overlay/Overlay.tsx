@@ -1,17 +1,16 @@
 import { useEffect, useRef, useState } from "react";
 import { listen } from "@tauri-apps/api/event";
+import { useTranslation } from "react-i18next";
 import type { DictationPhase, DictationState } from "../lib/ipc";
 import styles from "./Overlay.module.css";
 
 const CANVAS_SIZE = 148;
 
-const LABELS: Record<DictationPhase, string> = {
-  idle: "",
-  recording: "Listening",
-  transcribing: "Transcribing…",
-  inserted: "Inserted",
-  error: "Error",
-  canceled: "",
+const LABEL_KEYS: Partial<Record<DictationPhase, string>> = {
+  recording: "overlay.listening",
+  transcribing: "overlay.transcribing",
+  inserted: "overlay.inserted",
+  error: "overlay.error",
 };
 
 type RingPalette = [string, string][];
@@ -112,6 +111,7 @@ function drawOrb(
 }
 
 export default function Overlay() {
+  const { t } = useTranslation("common");
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const [phase, setPhase] = useState<DictationPhase>("idle");
   const phaseRef = useRef<DictationPhase>("idle");
@@ -159,7 +159,8 @@ export default function Overlay() {
   }, []);
 
   const visible = phase !== "idle" && phase !== "canceled";
-  const label = LABELS[phase];
+  const labelKey = LABEL_KEYS[phase];
+  const label = labelKey ? t(labelKey) : "";
 
   return (
     <div className={`${styles.root} ${visible ? "" : styles.hidden}`}>

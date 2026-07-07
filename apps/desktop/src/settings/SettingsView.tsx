@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState } from "react";
-import { listen } from "@tauri-apps/api/event";
+import { emit, listen } from "@tauri-apps/api/event";
+import { useTranslation } from "react-i18next";
 import { disable, enable, isEnabled } from "@tauri-apps/plugin-autostart";
 import {
   checkAccessibilityPermission,
@@ -17,11 +18,11 @@ import {
   listModels,
   updateSettings,
 } from "../lib/ipc";
+import { UI_LANGUAGE_EVENT, applyUiLanguage } from "../i18n/i18n";
 import HotkeyRecorder, { formatHotkey } from "./HotkeyRecorder";
 import styles from "./SettingsView.module.css";
 
-const LANGUAGES: [string, string][] = [
-  ["auto", "Auto-detect"],
+const SPEECH_LANGUAGES: [string, string][] = [
   ["en", "English"],
   ["ru", "Русский"],
   ["uk", "Українська"],
@@ -37,9 +38,12 @@ const LANGUAGES: [string, string][] = [
   ["ko", "한국어"],
 ];
 
+const UI_LANGUAGES = ["auto", "en", "ru"] as const;
+
 type Progress = Record<string, DownloadProgress>;
 
 export default function SettingsView() {
+  const { t } = useTranslation("common");
   const [settings, setSettings] = useState<AppSettings | null>(null);
   const [models, setModels] = useState<ModelInfo[]>([]);
   const [progress, setProgress] = useState<Progress>({});
@@ -100,6 +104,15 @@ export default function SettingsView() {
     [settings],
   );
 
+  const changeUiLanguage = useCallback(
+    (uiLanguage: string) => {
+      applyUiLanguage(uiLanguage);
+      void emit(UI_LANGUAGE_EVENT, uiLanguage);
+      void save({ uiLanguage });
+    },
+    [save],
+  );
+
   const toggleAutostart = useCallback(async () => {
     try {
       if (autostart) {
@@ -123,38 +136,38 @@ export default function SettingsView() {
       <header className={styles.header}>
         <div className={styles.logoDot} />
         <div>
-          <h1 className={styles.title}>Dictosaurus</h1>
-          <p className={styles.subtitle}>Local AI dictation — your voice never leaves this Mac</p>
+          <h1 className={styles.title}>{t("app.name")}</h1>
+          <p className={styles.subtitle}>{t("app.tagline")}</p>
         </div>
       </header>
 
       <section className={styles.hint}>
-        Hold <kbd className={styles.kbd}>{formatHotkey(settings.hotkey)}</kbd>, speak, release — the
-        text is inserted into the active input and copied to the clipboard.
+        {t("hint.beforeKey")} <kbd className={styles.kbd}>{formatHotkey(settings.hotkey)}</kbd>
+        {t("hint.afterKey")}
       </section>
 
       {isMac && (
-        <Section title="Permissions">
+        <Section title={t("section.permissions")}>
           <PermissionRow
-            name="Microphone"
-            detail="Required to record your dictation"
+            name={t("permissions.microphone")}
+            detail={t("permissions.microphoneDetail")}
             granted={micGranted}
             onRequest={() => requestMicrophonePermission().then(refreshPermissions)}
           />
           <PermissionRow
-            name="Accessibility"
-            detail="Required to insert text into the active app"
+            name={t("permissions.accessibility")}
+            detail={t("permissions.accessibilityDetail")}
             granted={axGranted}
             onRequest={() => requestAccessibilityPermission().then(refreshPermissions)}
           />
         </Section>
       )}
 
-      <Section title="Dictation">
+      <Section title={t("section.dictation")}>
         <div className={styles.row}>
           <div>
-            <div className={styles.rowLabel}>Push-to-talk hotkey</div>
-            <div className={styles.rowDetail}>Hold to record, release to insert</div>
+            <div className={styles.rowLabel}>{t("dictation.hotkey")}</div>
+            <div className={styles.rowDetail}>{t("dictation.hotkeyDetail")}</div>
           </div>
           <HotkeyRecorder value={settings.hotkey} onChange={(hotkey) => save({ hotkey })} />
         </div>
@@ -162,15 +175,16 @@ export default function SettingsView() {
 
         <div className={styles.row}>
           <div>
-            <div className={styles.rowLabel}>Language</div>
-            <div className={styles.rowDetail}>Spoken language, or auto-detect</div>
+            <div className={styles.rowLabel}>{t("dictation.language")}</div>
+            <div className={styles.rowDetail}>{t("dictation.languageDetail")}</div>
           </div>
           <select
             className={styles.select}
             value={settings.language}
             onChange={(e) => save({ language: e.target.value })}
           >
-            {LANGUAGES.map(([code, label]) => (
+            <option value="auto">{t("dictation.languageAuto")}</option>
+            {SPEECH_LANGUAGES.map(([code, label]) => (
               <option key={code} value={code}>
                 {label}
               </option>
@@ -179,11 +193,8 @@ export default function SettingsView() {
         </div>
       </Section>
 
-      <Section title="Models">
-        <p className={styles.sectionNote}>
-          Whisper models run fully on-device with GPU acceleration. Bigger models are more accurate
-          but slower.
-        </p>
+      <Section title={t("section.models")}>
+        <p className={styles.sectionNote}>{t("models.note")}</p>
         {models.map((model) => (
           <ModelRow
             key={model.id}
@@ -210,11 +221,29 @@ export default function SettingsView() {
         ))}
       </Section>
 
-      <Section title="General">
+      <Section title={t("section.general")}>
         <div className={styles.row}>
           <div>
-            <div className={styles.rowLabel}>Launch at login</div>
-            <div className={styles.rowDetail}>Start Dictosaurus automatically</div>
+            <div className={styles.rowLabel}>{t("general.interfaceLanguage")}</div>
+            <div className={styles.rowDetail}>{t("general.interfaceLanguageDetail")}</div>
+          </div>
+          <select
+            className={styles.select}
+            value={settings.uiLanguage}
+            onChange={(e) => changeUiLanguage(e.target.value)}
+          >
+            {UI_LANGUAGES.map((code) => (
+              <option key={code} value={code}>
+                {t(`general.interfaceLanguageOption.${code}`)}
+              </option>
+            ))}
+          </select>
+        </div>
+
+        <div className={styles.row}>
+          <div>
+            <div className={styles.rowLabel}>{t("general.autostart")}</div>
+            <div className={styles.rowDetail}>{t("general.autostartDetail")}</div>
           </div>
           <button
             type="button"
@@ -251,6 +280,7 @@ function PermissionRow({
   granted: boolean | null;
   onRequest: () => void;
 }) {
+  const { t } = useTranslation("common");
   return (
     <div className={styles.row}>
       <div>
@@ -266,10 +296,10 @@ function PermissionRow({
       </div>
       {granted === false && (
         <button type="button" className={styles.buttonSecondary} onClick={onRequest}>
-          Grant
+          {t("permissions.grant")}
         </button>
       )}
-      {granted === true && <span className={styles.grantedText}>Granted</span>}
+      {granted === true && <span className={styles.grantedText}>{t("permissions.granted")}</span>}
     </div>
   );
 }
@@ -289,7 +319,13 @@ function ModelRow({
   onDownload: () => void;
   onDelete: () => void;
 }) {
+  const { t } = useTranslation("common");
   const downloading = !!progress && !progress.done;
+  const languageBadge =
+    model.languages === "multilingual" ? t("models.badge.multilingual") : t("models.badge.ru");
+  const description = t(`models.description.${model.id}`, {
+    defaultValue: model.description,
+  });
 
   return (
     <div className={`${styles.modelRow} ${active ? styles.modelActive : ""}`}>
@@ -304,9 +340,16 @@ function ModelRow({
         />
         <div>
           <div className={styles.rowLabel}>
-            {model.label} <span className={styles.modelSize}>{model.sizeLabel}</span>
+            {model.label} <span className={styles.modelSize}>{model.sizeLabel}</span>{" "}
+            <span
+              className={`${styles.badge} ${
+                model.languages === "multilingual" ? "" : styles.badgeRu
+              }`}
+            >
+              {languageBadge}
+            </span>
           </div>
-          <div className={styles.rowDetail}>{model.description}</div>
+          <div className={styles.rowDetail}>{description}</div>
           {progress?.error && <div className={styles.error}>{progress.error}</div>}
         </div>
       </label>
@@ -322,12 +365,12 @@ function ModelRow({
         ) : model.downloaded ? (
           !active && (
             <button type="button" className={styles.buttonGhost} onClick={onDelete}>
-              Delete
+              {t("models.delete")}
             </button>
           )
         ) : (
           <button type="button" className={styles.buttonPrimary} onClick={onDownload}>
-            Download
+            {t("models.download")}
           </button>
         )}
       </div>

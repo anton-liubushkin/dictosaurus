@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from "react";
+import { useTranslation } from "react-i18next";
 import styles from "./SettingsView.module.css";
 
 const MODIFIER_CODES = new Set([
@@ -57,6 +58,7 @@ type Props = {
 };
 
 export default function HotkeyRecorder({ value, onChange }: Props) {
+  const { t } = useTranslation("common");
   const [capturing, setCapturing] = useState(false);
   const capturingRef = useRef(false);
 
@@ -91,7 +93,7 @@ export default function HotkeyRecorder({ value, onChange }: Props) {
       className={`${styles.hotkeyButton} ${capturing ? styles.hotkeyCapturing : ""}`}
       onClick={() => setCapturing(true)}
     >
-      {capturing ? "Press shortcut… (Esc to cancel)" : formatHotkey(value)}
+      {capturing ? t("hotkeyRecorder.capturing") : formatHotkey(value)}
     </button>
   );
 }

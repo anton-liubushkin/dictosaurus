@@ -14,8 +14,10 @@
   "dependencies": {
     "@tauri-apps/api": "^2.10.1",
     "@tauri-apps/plugin-autostart": "~2.5.0",
+    "i18next": "^26.3.4",
     "react": "^19.2.0",
     "react-dom": "^19.2.0",
+    "react-i18next": "^17.0.8",
     "tauri-plugin-macos-permissions-api": "^2"
   },
   "devDependencies": {
