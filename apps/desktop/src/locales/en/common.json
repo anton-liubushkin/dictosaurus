@@ -30,7 +30,7 @@
     "languageAuto": "Auto-detect"
   },
   "hotkeyRecorder": {
-    "capturing": "Press shortcut… (Esc to cancel)"
+    "capturing": "Press a shortcut, or hold 2+ modifier keys and release… (Esc to cancel)"
   },
   "models": {
     "note": "Models run fully on-device. Bigger models are more accurate but slower. GigaAM v3 by Sber is the most accurate option for Russian.",

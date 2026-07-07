@@ -37,6 +37,7 @@ whisper-rs = { version = "0.16", features = ["metal"] }
 tauri-nspanel = { git = "https://github.com/ahkohd/tauri-nspanel", branch = "v2.1" }
 tauri-plugin-macos-permissions = "2"
 core-graphics = "0.25"
+core-foundation = "0.10"
 
 # whisper.cpp inference is far too slow in unoptimized builds.
 [profile.dev]

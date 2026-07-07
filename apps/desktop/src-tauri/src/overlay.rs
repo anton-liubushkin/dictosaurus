@@ -100,11 +100,17 @@ pub fn show(app: &AppHandle) {
         #[cfg(target_os = "macos")]
         {
             use tauri_nspanel::ManagerExt;
-            if let Ok(panel) = app.get_webview_panel(LABEL) {
-                // macOS can reset click-through on some calls; re-assert it.
-                panel.set_ignores_mouse_events(true);
-                panel.show();
-                panel.order_front_regardless();
+            match app.get_webview_panel(LABEL) {
+                Ok(panel) => {
+                    // macOS can reset click-through on some calls; re-assert it.
+                    panel.set_ignores_mouse_events(true);
+                    panel.show();
+                    panel.order_front_regardless();
+                }
+                // Should not happen (the panel lives for the whole app run);
+                // log loudly so a one-way "overlay never shows again" failure
+                // is diagnosable instead of silent.
+                Err(e) => log::error!("[overlay] show failed, panel not found: {e:?}"),
             }
         }
 

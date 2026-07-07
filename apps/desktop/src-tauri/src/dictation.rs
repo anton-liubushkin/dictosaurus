@@ -7,6 +7,7 @@
 
 use crate::{audio, models, overlay, paste, settings::AppSettings, transcribe, AppState};
 use serde::Serialize;
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Mutex;
 use std::time::Duration;
 use tauri::{AppHandle, Emitter, Manager};
@@ -22,6 +23,11 @@ enum Phase {
 #[derive(Default)]
 pub struct Dictation {
     inner: Mutex<Inner>,
+    /// Bumped every time the overlay is shown (new session or error flash).
+    /// Delayed hides capture the value and only fire if it is unchanged, so
+    /// a hide scheduled by a previous session can never blank the overlay of
+    /// a newer one.
+    generation: AtomicU64,
 }
 
 #[derive(Default)]
@@ -86,6 +92,7 @@ pub fn hotkey_pressed(app: &AppHandle) {
         }
     }
 
+    state.dictation.generation.fetch_add(1, Ordering::SeqCst);
     log::info!("[dictation] recording started");
     emit_state(app, "recording", None, None);
     overlay::show(app);
@@ -181,10 +188,12 @@ fn spawn_level_task(app: AppHandle) {
     });
 }
 
+/// Ends a session: goes idle immediately (so the hotkey can start a new
+/// session right away), then hides the overlay after `delay_ms` — unless a
+/// new session has shown the overlay again in the meantime.
 async fn finish(app: &AppHandle, delay_ms: u64) {
-    tokio::time::sleep(Duration::from_millis(delay_ms)).await;
-    overlay::hide(app);
     set_idle(app);
+    hide_overlay_after(app.clone(), delay_ms).await;
 }
 
 fn set_idle(app: &AppHandle) {
@@ -194,10 +203,32 @@ fn set_idle(app: &AppHandle) {
 
 /// Shows the overlay briefly (used for error feedback outside a session).
 fn flash_overlay(app: &AppHandle, ms: u64) {
+    let state = app.state::<AppState>();
+    state.dictation.generation.fetch_add(1, Ordering::SeqCst);
     overlay::show(app);
     let app = app.clone();
     tauri::async_runtime::spawn(async move {
-        tokio::time::sleep(Duration::from_millis(ms)).await;
-        overlay::hide(&app);
+        hide_overlay_after(app, ms).await;
     });
+}
+
+/// Hides the overlay after a delay, but only if no newer session/flash has
+/// shown it again while we slept (each show bumps the generation counter).
+async fn hide_overlay_after(app: AppHandle, delay_ms: u64) {
+    let generation = app
+        .state::<AppState>()
+        .dictation
+        .generation
+        .load(Ordering::SeqCst);
+    tokio::time::sleep(Duration::from_millis(delay_ms)).await;
+    let current = app
+        .state::<AppState>()
+        .dictation
+        .generation
+        .load(Ordering::SeqCst);
+    if current == generation {
+        overlay::hide(&app);
+    } else {
+        log::debug!("[dictation] skipping stale overlay hide (a new session took over)");
+    }
 }
