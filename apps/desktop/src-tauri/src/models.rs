@@ -115,6 +115,20 @@ static CURATED: Lazy<Vec<ModelDef>> = Lazy::new(|| {
             ],
         },
         ModelDef {
+            id: "whisper-podlodka-turbo".into(),
+            label: "Whisper Podlodka Turbo".into(),
+            size_label: "~874 MB".into(),
+            description: "Russian-tuned Whisper: strong accuracy with punctuation".into(),
+            engine: Engine::Whisper,
+            languages: "ru".into(),
+            feature_dim: None,
+            files: vec![ModelFile {
+                rel_path: "ggml-podlodka-turbo-q8_0.bin".into(),
+                url: "https://huggingface.co/evilfreelancer/whisper-podlodka-turbo-GGUF/resolve/main/ggml-podlodka-turbo-q8_0.bin".into(),
+                bytes_hint: 874_188_075,
+            }],
+        },
+        ModelDef {
             id: "parakeet-tdt-0.6b-v3".into(),
             label: "Parakeet TDT v3 (NVIDIA)".into(),
             size_label: "~670 MB".into(),
