@@ -1,8 +1,9 @@
 mod audio;
 mod commands;
 mod dictation;
+pub mod hf_catalog;
 mod hotkey;
-mod models;
+pub mod models;
 mod overlay;
 mod paste;
 mod settings;
@@ -52,6 +53,7 @@ pub fn run() {
             app.set_activation_policy(tauri::ActivationPolicy::Accessory);
 
             models::init_storage(app.handle());
+            hf_catalog::init(app.handle());
             let store = settings::SettingsStore::load(app.handle());
             let hotkey_str = store.current().hotkey.clone();
 
@@ -83,6 +85,7 @@ pub fn run() {
             commands::get_settings,
             commands::update_settings,
             commands::list_models,
+            commands::list_hf_models,
             commands::download_model,
             commands::delete_model,
         ])

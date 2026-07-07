@@ -11,6 +11,7 @@
     "permissions": "Permissions",
     "dictation": "Dictation",
     "models": "Models",
+    "hfModels": "Hugging Face models",
     "general": "General"
   },
   "permissions": {
@@ -41,6 +42,7 @@
     },
     "description": {
       "gigaam-v3-e2e-ctc": "Best for Russian: SOTA accuracy with punctuation (Sber)",
+      "parakeet-tdt-0.6b-v3": "Best for European languages: 25 languages with punctuation (NVIDIA)",
       "tiny": "Fastest, lowest accuracy",
       "base": "Fast, decent for short phrases",
       "small": "Balanced speed and accuracy",
@@ -48,6 +50,15 @@
       "large-v3-turbo-q5_0": "Great accuracy, compact and fast",
       "large-v3-turbo": "Best multilingual accuracy"
     }
+  },
+  "hfModels": {
+    "note": "Extra speech models converted for sherpa-onnx by its maintainer. Quality varies — the recommended list above is a safer choice.",
+    "searchPlaceholder": "Search models…",
+    "languageAll": "All languages",
+    "empty": "No models match the filters.",
+    "updatedJustNow": "Catalog updated just now",
+    "updatedHoursAgo_one": "Catalog updated {{count}} hour ago",
+    "updatedHoursAgo_other": "Catalog updated {{count}} hours ago"
   },
   "general": {
     "interfaceLanguage": "Interface language",

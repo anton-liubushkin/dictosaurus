@@ -7,7 +7,7 @@ export type AppSettings = {
   uiLanguage: string;
 };
 
-export type ModelEngine = "whisper" | "gigaam";
+export type ModelEngine = "whisper" | "nemo_ctc" | "nemo_transducer";
 
 export type ModelInfo = {
   id: string;
@@ -17,6 +17,12 @@ export type ModelInfo = {
   engine: ModelEngine;
   languages: string;
   downloaded: boolean;
+};
+
+export type HfCatalogInfo = {
+  /** Unix seconds of the last catalog refresh. */
+  generatedAt: number;
+  models: ModelInfo[];
 };
 
 export type DownloadProgress = {
@@ -46,5 +52,6 @@ export const getSettings = () => invoke<AppSettings>("get_settings");
 export const updateSettings = (settings: AppSettings) =>
   invoke<void>("update_settings", { settings });
 export const listModels = () => invoke<ModelInfo[]>("list_models");
+export const listHfModels = () => invoke<HfCatalogInfo | null>("list_hf_models");
 export const downloadModel = (modelId: string) => invoke<void>("download_model", { modelId });
 export const deleteModel = (modelId: string) => invoke<void>("delete_model", { modelId });

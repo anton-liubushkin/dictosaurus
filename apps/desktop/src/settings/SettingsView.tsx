@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { emit, listen } from "@tauri-apps/api/event";
 import { useTranslation } from "react-i18next";
 import { disable, enable, isEnabled } from "@tauri-apps/plugin-autostart";
@@ -11,10 +11,12 @@ import {
 import {
   AppSettings,
   DownloadProgress,
+  HfCatalogInfo,
   ModelInfo,
   deleteModel,
   downloadModel,
   getSettings,
+  listHfModels,
   listModels,
   updateSettings,
 } from "../lib/ipc";
@@ -40,12 +42,33 @@ const SPEECH_LANGUAGES: [string, string][] = [
 
 const UI_LANGUAGES = ["auto", "en", "ru"] as const;
 
+const HF_FILTER_LANGUAGES = [
+  "en",
+  "ru",
+  "uk",
+  "de",
+  "fr",
+  "es",
+  "it",
+  "pt",
+  "pl",
+  "zh",
+  "ja",
+  "ko",
+] as const;
+
 type Progress = Record<string, DownloadProgress>;
 
 export default function SettingsView() {
-  const { t } = useTranslation("common");
+  const { t, i18n } = useTranslation("common");
   const [settings, setSettings] = useState<AppSettings | null>(null);
   const [models, setModels] = useState<ModelInfo[]>([]);
+  const [hfCatalog, setHfCatalog] = useState<HfCatalogInfo | null>(null);
+  const [hfSearch, setHfSearch] = useState("");
+  const [hfLanguage, setHfLanguage] = useState(() => {
+    const uiLang = i18n.language.split("-")[0];
+    return (HF_FILTER_LANGUAGES as readonly string[]).includes(uiLang) ? uiLang : "all";
+  });
   const [progress, setProgress] = useState<Progress>({});
   const [hotkeyError, setHotkeyError] = useState<string | null>(null);
   const [micGranted, setMicGranted] = useState<boolean | null>(null);
@@ -55,6 +78,7 @@ export default function SettingsView() {
 
   const refreshModels = useCallback(() => {
     listModels().then(setModels).catch(console.error);
+    listHfModels().then(setHfCatalog).catch(console.error);
   }, []);
 
   const refreshPermissions = useCallback(() => {
@@ -74,6 +98,28 @@ export default function SettingsView() {
     const id = setInterval(refreshPermissions, 3000);
     return () => clearInterval(id);
   }, [isMac, refreshPermissions]);
+
+  useEffect(() => {
+    const unlisten = listen("hf-catalog-updated", () => {
+      listHfModels().then(setHfCatalog).catch(console.error);
+    });
+    return () => {
+      unlisten.then((fn) => fn());
+    };
+  }, []);
+
+  const filteredHfModels = useMemo(() => {
+    if (!hfCatalog) return [];
+    const query = hfSearch.trim().toLowerCase();
+    return hfCatalog.models.filter((model) => {
+      if (query && !model.label.toLowerCase().includes(query)) return false;
+      if (hfLanguage === "all") return true;
+      if (hfLanguage === "multilingual") return model.languages === "multilingual";
+      return (
+        model.languages === "multilingual" || model.languages.split(",").includes(hfLanguage)
+      );
+    });
+  }, [hfCatalog, hfSearch, hfLanguage]);
 
   useEffect(() => {
     const unlisten = listen<DownloadProgress>("model-download-progress", (event) => {
@@ -112,6 +158,21 @@ export default function SettingsView() {
     },
     [save],
   );
+
+  const startDownload = useCallback((modelId: string) => {
+    setProgress((prev) => ({
+      ...prev,
+      [modelId]: {
+        modelId,
+        downloadedBytes: 0,
+        totalBytes: null,
+        percent: 0,
+        done: false,
+        error: null,
+      },
+    }));
+    downloadModel(modelId).catch(console.error);
+  }, []);
 
   const toggleAutostart = useCallback(async () => {
     try {
@@ -202,24 +263,56 @@ export default function SettingsView() {
             active={settings.modelId === model.id}
             progress={progress[model.id]}
             onSelect={() => save({ modelId: model.id })}
-            onDownload={() => {
-              setProgress((prev) => ({
-                ...prev,
-                [model.id]: {
-                  modelId: model.id,
-                  downloadedBytes: 0,
-                  totalBytes: null,
-                  percent: 0,
-                  done: false,
-                  error: null,
-                },
-              }));
-              downloadModel(model.id).catch(console.error);
-            }}
+            onDownload={() => startDownload(model.id)}
             onDelete={() => deleteModel(model.id).then(refreshModels).catch(console.error)}
           />
         ))}
       </Section>
+
+      {hfCatalog && (
+        <Section title={t("section.hfModels")}>
+          <p className={styles.sectionNote}>{t("hfModels.note")}</p>
+          <div className={styles.hfFilters}>
+            <input
+              type="search"
+              className={styles.searchInput}
+              placeholder={t("hfModels.searchPlaceholder")}
+              value={hfSearch}
+              onChange={(e) => setHfSearch(e.target.value)}
+            />
+            <select
+              className={styles.select}
+              value={hfLanguage}
+              onChange={(e) => setHfLanguage(e.target.value)}
+            >
+              <option value="all">{t("hfModels.languageAll")}</option>
+              {HF_FILTER_LANGUAGES.map((code) => (
+                <option key={code} value={code}>
+                  {code.toUpperCase()}
+                </option>
+              ))}
+              <option value="multilingual">{t("models.badge.multilingual")}</option>
+            </select>
+          </div>
+          {filteredHfModels.length === 0 ? (
+            <p className={styles.sectionNote}>{t("hfModels.empty")}</p>
+          ) : (
+            filteredHfModels.map((model) => (
+              <ModelRow
+                key={model.id}
+                model={model}
+                active={settings.modelId === model.id}
+                progress={progress[model.id]}
+                onSelect={() => save({ modelId: model.id })}
+                onDownload={() => startDownload(model.id)}
+                onDelete={() => deleteModel(model.id).then(refreshModels).catch(console.error)}
+                showEngine
+              />
+            ))
+          )}
+          <UpdatedHint generatedAt={hfCatalog.generatedAt} />
+        </Section>
+      )}
 
       <Section title={t("section.general")}>
         <div className={styles.row}>
@@ -304,6 +397,20 @@ function PermissionRow({
   );
 }
 
+function UpdatedHint({ generatedAt }: { generatedAt: number }) {
+  const { t } = useTranslation("common");
+  const hours = Math.floor((Date.now() / 1000 - generatedAt) / 3600);
+  if (hours < 0) return null;
+  const text =
+    hours === 0 ? t("hfModels.updatedJustNow") : t("hfModels.updatedHoursAgo", { count: hours });
+  return <p className={styles.updatedHint}>{text}</p>;
+}
+
+const ENGINE_BADGES: Partial<Record<ModelInfo["engine"], string>> = {
+  nemo_ctc: "CTC",
+  nemo_transducer: "Transducer",
+};
+
 function ModelRow({
   model,
   active,
@@ -311,6 +418,7 @@ function ModelRow({
   onSelect,
   onDownload,
   onDelete,
+  showEngine = false,
 }: {
   model: ModelInfo;
   active: boolean;
@@ -318,11 +426,16 @@ function ModelRow({
   onSelect: () => void;
   onDownload: () => void;
   onDelete: () => void;
+  showEngine?: boolean;
 }) {
   const { t } = useTranslation("common");
   const downloading = !!progress && !progress.done;
   const languageBadge =
-    model.languages === "multilingual" ? t("models.badge.multilingual") : t("models.badge.ru");
+    model.languages === "multilingual"
+      ? t("models.badge.multilingual")
+      : t(`models.badge.${model.languages}`, {
+          defaultValue: model.languages.toUpperCase().split(",").join(", "),
+        });
   const description = t(`models.description.${model.id}`, {
     defaultValue: model.description,
   });
@@ -348,6 +461,9 @@ function ModelRow({
             >
               {languageBadge}
             </span>
+            {showEngine && ENGINE_BADGES[model.engine] && (
+              <span className={styles.badge}>{ENGINE_BADGES[model.engine]}</span>
+            )}
           </div>
           <div className={styles.rowDetail}>{description}</div>
           {progress?.error && <div className={styles.error}>{progress.error}</div>}

@@ -257,6 +257,7 @@
   font-size: 12px;
   font-weight: 400;
   color: var(--text-dim);
+  white-space: nowrap;
 }
 
 .badge {
@@ -279,6 +280,41 @@
 
 .modelActions {
   flex-shrink: 0;
+}
+
+.hfFilters {
+  display: flex;
+  gap: 10px;
+  padding: 12px 16px;
+  border-bottom: 1px solid var(--border);
+}
+
+.searchInput {
+  flex: 1;
+  min-width: 0;
+  padding: 8px 12px;
+  border-radius: 8px;
+  border: 1px solid var(--border);
+  background: var(--bg-elevated);
+  color: var(--text);
+  font-size: 13px;
+}
+
+.searchInput::placeholder {
+  color: var(--text-dim);
+}
+
+.searchInput:focus {
+  outline: none;
+  border-color: var(--accent);
+}
+
+.updatedHint {
+  margin: 0;
+  padding: 10px 16px 12px;
+  font-size: 11.5px;
+  color: var(--text-dim);
+  border-top: 1px solid var(--border);
 }
 
 .progressWrap {
