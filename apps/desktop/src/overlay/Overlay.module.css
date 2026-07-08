@@ -4,18 +4,18 @@
   flex-direction: column;
   align-items: center;
   justify-content: flex-end;
-  padding-bottom: 6px;
 }
 
-/* Clips the mascot so it slides in from "below the screen" even though the
-   overlay window itself floats above the bottom edge. */
+/* Shows the top ~2/3 of the mascot; the bottom third is clipped at the
+   screen edge so the dino "peeks" up from below. */
 .mascotClip {
   overflow: hidden;
-  padding: 12px 12px 0;
+  width: 240px;
+  height: 167px;
 }
 
 .label {
-  margin-top: -6px;
+  margin-bottom: 4px;
   font-size: 12px;
   font-weight: 500;
   letter-spacing: 0.02em;

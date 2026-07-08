@@ -35,10 +35,10 @@ export default function Overlay() {
 
   return (
     <div className={styles.root}>
+      <div className={styles.label}>{label || "\u00a0"}</div>
       <div className={styles.mascotClip}>
         <Mascot phase={phase} levelRef={levelRef} />
       </div>
-      <div className={styles.label}>{label || "\u00a0"}</div>
     </div>
   );
 }
