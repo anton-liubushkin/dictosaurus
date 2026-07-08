@@ -101,11 +101,22 @@ pub fn show(app: &AppHandle) {
 
         #[cfg(target_os = "macos")]
         {
-            use tauri_nspanel::ManagerExt;
+            use tauri_nspanel::{CollectionBehavior, ManagerExt};
             match app.get_webview_panel(LABEL) {
                 Ok(panel) => {
                     // macOS can reset click-through on some calls; re-assert it.
                     panel.set_ignores_mouse_events(true);
+                    // Re-assert the collection behavior on every show. Without
+                    // this the panel created at startup stays bound to the
+                    // Space it was created on and never follows the user to
+                    // other virtual desktops / fullscreen Spaces.
+                    panel.set_collection_behavior(
+                        CollectionBehavior::new()
+                            .can_join_all_spaces()
+                            .full_screen_auxiliary()
+                            .stationary()
+                            .value(),
+                    );
                     panel.show();
                     panel.order_front_regardless();
                 }
