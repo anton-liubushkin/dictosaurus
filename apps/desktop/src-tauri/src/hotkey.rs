@@ -359,7 +359,9 @@ mod tap {
         };
 
         let Ok(source) = tap.mach_port().create_runloop_source(0) else {
-            let _ = ready_tx.send(Err("failed to create a run-loop source for the event tap".into()));
+            let _ = ready_tx.send(Err(
+                "failed to create a run-loop source for the event tap".into()
+            ));
             return;
         };
 

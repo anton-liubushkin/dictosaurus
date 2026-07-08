@@ -4,8 +4,6 @@ version = "0.1.0"
 description = "Local AI dictation for desktop"
 authors = ["Anton Liubushkin"]
 edition = "2021"
-# The package has a second bin (`hf_snapshot`); keep plain `cargo run` working.
-default-run = "dictosaurus"
 
 [lib]
 name = "dictosaurus_lib"

@@ -11,7 +11,6 @@
     "permissions": "Разрешения",
     "dictation": "Диктовка",
     "models": "Модели",
-    "hfModels": "Модели с Hugging Face",
     "general": "Общие"
   },
   "permissions": {
@@ -27,10 +26,7 @@
     "hotkeyDetail": "Удерживайте для записи, отпустите для вставки",
     "language": "Язык",
     "languageDetail": "Язык речи или автоопределение",
-    "languageAuto": "Автоопределение",
-    "livePreview": "Показывать текст во время диктовки",
-    "livePreviewDetail": "Текст появляется на экране, пока вы говорите",
-    "livePreviewUnsupported": "Выбранная модель не поддерживает живую диктовку — выберите модель со значком Live"
+    "languageAuto": "Автоопределение"
   },
   "hotkeyRecorder": {
     "capturing": "Нажмите сочетание или зажмите 2+ модификатора и отпустите… (Esc — отмена)"
@@ -41,12 +37,9 @@
     "delete": "Удалить",
     "badge": {
       "ru": "Русский",
-      "multilingual": "Мультиязычная",
-      "live": "Live"
+      "multilingual": "Мультиязычная"
     },
     "description": {
-      "t-one-streaming-ru": "Русская с живой диктовкой: потоковая, без пунктуации (Т-Банк)",
-      "nemo-streaming-fast-conformer-en": "Английская с живой диктовкой: потоковая, без пунктуации (NVIDIA)",
       "gigaam-v3-e2e-ctc": "Лучшая для русского: SOTA-точность с пунктуацией (Сбер)",
       "whisper-podlodka-turbo": "Whisper Large v3 Turbo, дообученная для русского языка, с пунктуацией (bond005)",
       "parakeet-tdt-0.6b-v3": "Лучшая для европейских языков: 25 языков с пунктуацией (NVIDIA)",
@@ -57,17 +50,6 @@
       "large-v3-turbo-q5_0": "Отличная точность, компактная и быстрая",
       "large-v3-turbo": "Максимальная мультиязычная точность"
     }
-  },
-  "hfModels": {
-    "note": "Дополнительные модели, сконвертированные для sherpa-onnx его сопровождающим. Качество может отличаться — рекомендованный список выше надёжнее.",
-    "searchPlaceholder": "Поиск моделей…",
-    "languageAll": "Все языки",
-    "empty": "Под фильтры не подходит ни одна модель.",
-    "updatedJustNow": "Каталог только что обновлён",
-    "updatedHoursAgo_one": "Каталог обновлён {{count}} час назад",
-    "updatedHoursAgo_few": "Каталог обновлён {{count}} часа назад",
-    "updatedHoursAgo_many": "Каталог обновлён {{count}} часов назад",
-    "updatedHoursAgo_other": "Каталог обновлён {{count}} часа назад"
   },
   "general": {
     "interfaceLanguage": "Язык интерфейса",

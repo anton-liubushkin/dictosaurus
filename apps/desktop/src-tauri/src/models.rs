@@ -5,9 +5,8 @@
 //! - `nemo_ctc`         — NeMo CTC ONNX exports for sherpa-onnx (e.g. GigaAM v3)
 //! - `nemo_transducer`  — NeMo transducer ONNX exports for sherpa-onnx (e.g. Parakeet TDT)
 //!
-//! Models come from two sources: the curated catalog below and the dynamic
-//! Hugging Face catalog (`hf_catalog`, ids prefixed with `hf:`). All files are
-//! stored under `<app data>/models`; a model may consist of several files.
+//! Models come from the curated catalog below. All files are stored under
+//! `<app data>/models`; a model may consist of several files.
 //! Download progress is reported via the `model-download-progress` event.
 
 use futures_util::StreamExt;
@@ -18,13 +17,10 @@ use std::sync::OnceLock;
 use tauri::{AppHandle, Emitter, Manager};
 use tokio::io::AsyncWriteExt;
 
-use crate::hf_catalog;
-
 static MODELS_DIR: OnceLock<PathBuf> = OnceLock::new();
 static DOWNLOAD_LOCK: Lazy<tokio::sync::Mutex<()>> = Lazy::new(|| tokio::sync::Mutex::new(()));
 
 const PROGRESS_EVENT: &str = "model-download-progress";
-pub const HF_ID_PREFIX: &str = "hf:";
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
@@ -32,17 +28,6 @@ pub enum Engine {
     Whisper,
     NemoCtc,
     NemoTransducer,
-    /// Streaming T-one CTC (sherpa-onnx online recognizer, 8 kHz features).
-    ToneCtc,
-    /// Streaming transducer (NeMo cache-aware fast-conformer, Nemotron, …).
-    OnlineTransducer,
-}
-
-impl Engine {
-    /// Whether the engine decodes incrementally and can power live preview.
-    pub fn is_streaming(self) -> bool {
-        matches!(self, Engine::ToneCtc | Engine::OnlineTransducer)
-    }
 }
 
 #[derive(Clone, Debug)]
@@ -170,58 +155,6 @@ static CURATED: Lazy<Vec<ModelDef>> = Lazy::new(|| {
                 },
             ],
         },
-        ModelDef {
-            id: "t-one-streaming-ru".into(),
-            label: "T-one (T-Bank)".into(),
-            size_label: "~144 MB".into(),
-            description: "Russian with live preview: streaming, no punctuation".into(),
-            engine: Engine::ToneCtc,
-            languages: "ru".into(),
-            feature_dim: None,
-            files: vec![
-                ModelFile {
-                    rel_path: "t-one-streaming-ru.onnx".into(),
-                    url: "https://huggingface.co/csukuangfj/sherpa-onnx-streaming-t-one-russian-2025-09-08/resolve/main/model.onnx".into(),
-                    bytes_hint: 144_193_702,
-                },
-                ModelFile {
-                    rel_path: "t-one-streaming-ru.tokens.txt".into(),
-                    url: "https://huggingface.co/csukuangfj/sherpa-onnx-streaming-t-one-russian-2025-09-08/resolve/main/tokens.txt".into(),
-                    bytes_hint: 202,
-                },
-            ],
-        },
-        ModelDef {
-            id: "nemo-streaming-fast-conformer-en".into(),
-            label: "FastConformer Streaming (NVIDIA)".into(),
-            size_label: "~137 MB".into(),
-            description: "English with live preview: streaming, no punctuation".into(),
-            engine: Engine::OnlineTransducer,
-            languages: "en".into(),
-            feature_dim: None,
-            files: vec![
-                ModelFile {
-                    rel_path: "nemo-streaming-fc-en.encoder.int8.onnx".into(),
-                    url: "https://huggingface.co/csukuangfj/sherpa-onnx-nemo-streaming-fast-conformer-transducer-en-480ms-int8/resolve/main/encoder.int8.onnx".into(),
-                    bytes_hint: 131_507_603,
-                },
-                ModelFile {
-                    rel_path: "nemo-streaming-fc-en.decoder.int8.onnx".into(),
-                    url: "https://huggingface.co/csukuangfj/sherpa-onnx-nemo-streaming-fast-conformer-transducer-en-480ms-int8/resolve/main/decoder.int8.onnx".into(),
-                    bytes_hint: 3_955_864,
-                },
-                ModelFile {
-                    rel_path: "nemo-streaming-fc-en.joiner.int8.onnx".into(),
-                    url: "https://huggingface.co/csukuangfj/sherpa-onnx-nemo-streaming-fast-conformer-transducer-en-480ms-int8/resolve/main/joiner.int8.onnx".into(),
-                    bytes_hint: 1_408_182,
-                },
-                ModelFile {
-                    rel_path: "nemo-streaming-fc-en.tokens.txt".into(),
-                    url: "https://huggingface.co/csukuangfj/sherpa-onnx-nemo-streaming-fast-conformer-transducer-en-480ms-int8/resolve/main/tokens.txt".into(),
-                    bytes_hint: 11_896,
-                },
-            ],
-        },
         whisper_model(
             "tiny",
             "Tiny",
@@ -277,11 +210,8 @@ pub fn curated() -> &'static [ModelDef] {
     &CURATED
 }
 
-/// Resolves a model id from the curated catalog or the Hugging Face catalog.
+/// Resolves a model id from the curated catalog.
 pub fn def_by_id(id: &str) -> Option<ModelDef> {
-    if id.starts_with(HF_ID_PREFIX) {
-        return hf_catalog::def_by_id(id);
-    }
     curated().iter().find(|d| d.id == id).cloned()
 }
 
@@ -326,7 +256,6 @@ pub struct ModelInfo {
     pub description: String,
     pub engine: Engine,
     pub languages: String,
-    pub streaming: bool,
     pub downloaded: bool,
 }
 
@@ -340,7 +269,6 @@ pub fn catalog_status() -> Vec<ModelInfo> {
             description: d.description.clone(),
             engine: d.engine,
             languages: d.languages.clone(),
-            streaming: d.engine.is_streaming(),
             downloaded: resolve_paths(d).is_some(),
         })
         .collect()
@@ -435,28 +363,12 @@ pub async fn download_model(app: &AppHandle, model_id: String) -> Result<(), Str
         completed_bytes += file.bytes_hint;
     }
 
-    // Keep a descriptor next to the files so a downloaded HF model keeps
-    // working even if its catalog entry disappears later.
-    if model_id.starts_with(HF_ID_PREFIX) {
-        if let Err(e) = hf_catalog::persist_descriptor(&model_id) {
-            log::warn!("[models] persist descriptor for {model_id}: {e}");
-        }
-    }
-
     log::info!("[models] downloaded {}", def.id);
     emit_progress(app, &model_id, 0, None, 100, true, None);
     Ok(())
 }
 
 pub fn delete_model(model_id: &str) -> Result<(), String> {
-    if let Some(repo_dir) = hf_catalog::download_dir(model_id) {
-        if !repo_dir.is_dir() {
-            return Err("model is not downloaded".to_string());
-        }
-        return std::fs::remove_dir_all(&repo_dir)
-            .map_err(|e| format!("delete {}: {e}", repo_dir.display()));
-    }
-
     let def = def_by_id(model_id).ok_or_else(|| format!("unknown model id: {model_id}"))?;
     let paths = resolve_paths(&def).ok_or_else(|| "model is not downloaded".to_string())?;
     for path in paths {
@@ -518,5 +430,20 @@ async fn download_file(
             let _ = std::fs::remove_file(&partial);
             Err(e)
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn curated_catalog_does_not_include_streaming_models() {
+        assert!(
+            curated()
+                .iter()
+                .all(|model| !model.id.contains("streaming")),
+            "live/streaming ASR models should not be part of the curated catalog"
+        );
     }
 }

@@ -2,9 +2,6 @@
 //! - Whisper (ggml) via `whisper-rs` / whisper.cpp with Metal
 //! - NeMo CTC (e.g. GigaAM v3) and NeMo transducer (e.g. Parakeet TDT) ONNX
 //!   models via `sherpa-onnx`
-//! - Streaming models (T-one CTC, NeMo/Nemotron streaming transducer) via the
-//!   sherpa-onnx online recognizer; they also serve the plain batch path and
-//!   additionally power the live-preview [`LiveSession`]
 //!
 //! The loaded model is cached between dictations so only the first use of a
 //! model pays the load cost (a single cache slot also caps peak RAM).
@@ -14,8 +11,7 @@ use crate::models::{self, Engine, ModelDef};
 use once_cell::sync::Lazy;
 use sherpa_onnx::{
     OfflineNemoEncDecCtcModelConfig, OfflineRecognizer, OfflineRecognizerConfig,
-    OfflineTransducerModelConfig, OnlineRecognizer, OnlineRecognizerConfig, OnlineStream,
-    OnlineToneCtcModelConfig, OnlineTransducerModelConfig,
+    OfflineTransducerModelConfig,
 };
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
@@ -25,13 +21,10 @@ use whisper_rs::{FullParams, SamplingStrategy, WhisperContext, WhisperContextPar
 enum Loaded {
     Whisper(WhisperContext),
     Sherpa(OfflineRecognizer),
-    SherpaOnline(OnlineRecognizer),
 }
 
 type CacheSlot = Option<(PathBuf, Arc<Loaded>)>;
 
-/// The cache hands out `Arc`s so a live streaming session can keep using the
-/// model without holding the cache lock for the whole recording.
 static CACHE: Lazy<Mutex<CacheSlot>> = Lazy::new(|| Mutex::new(None));
 
 const SAMPLE_RATE: usize = 16_000;
@@ -82,19 +75,14 @@ fn loaded(def: &ModelDef, paths: &[PathBuf]) -> Result<Arc<Loaded>, String> {
         Engine::Whisper => Loaded::Whisper(load_whisper(key)?),
         Engine::NemoCtc => Loaded::Sherpa(load_nemo_ctc(def, paths)?),
         Engine::NemoTransducer => Loaded::Sherpa(load_nemo_transducer(def, paths)?),
-        Engine::ToneCtc | Engine::OnlineTransducer => {
-            Loaded::SherpaOnline(load_online(def, paths)?)
-        }
     });
     *guard = Some((key.clone(), loaded.clone()));
     Ok(loaded)
 }
 
 fn loaded_by_id(model_id: &str) -> Result<(ModelDef, Arc<Loaded>), String> {
-    let def =
-        models::def_by_id(model_id).ok_or_else(|| format!("unknown model id: {model_id}"))?;
-    let paths =
-        models::resolve_paths(&def).ok_or_else(|| "model files are missing".to_string())?;
+    let def = models::def_by_id(model_id).ok_or_else(|| format!("unknown model id: {model_id}"))?;
+    let paths = models::resolve_paths(&def).ok_or_else(|| "model files are missing".to_string())?;
     let loaded = loaded(&def, &paths)?;
     Ok((def, loaded))
 }
@@ -106,7 +94,6 @@ pub fn transcribe(model_id: &str, language: &str, pcm: &[f32]) -> Result<String,
     match &*loaded {
         Loaded::Whisper(ctx) => run_whisper(ctx, language, pcm),
         Loaded::Sherpa(recognizer) => run_sherpa(recognizer, pcm),
-        Loaded::SherpaOnline(recognizer) => run_sherpa_online(recognizer, pcm),
     }
 }
 
@@ -215,115 +202,4 @@ fn run_sherpa(recognizer: &OfflineRecognizer, pcm: &[f32]) -> Result<String, Str
     stream.accept_waveform(SAMPLE_RATE as i32, pcm);
     recognizer.decode(&stream);
     Ok(stream.get_result().map(|r| r.text).unwrap_or_default())
-}
-
-// --- sherpa-onnx online (streaming) models ---
-
-fn num_threads() -> i32 {
-    std::thread::available_parallelism()
-        .map(|n| n.get() as i32)
-        .unwrap_or(4)
-        .min(4)
-}
-
-/// T-one models take raw 8 kHz samples; `accept_waveform` resamples internally.
-const T_ONE_SAMPLE_RATE: i32 = 8_000;
-
-fn load_online(def: &ModelDef, paths: &[PathBuf]) -> Result<OnlineRecognizer, String> {
-    let mut config = OnlineRecognizerConfig {
-        decoding_method: Some("greedy_search".into()),
-        ..Default::default()
-    };
-    config.model_config.num_threads = num_threads();
-
-    match def.engine {
-        Engine::ToneCtc => {
-            config.feat_config.sample_rate = T_ONE_SAMPLE_RATE;
-            config.model_config.t_one_ctc = OnlineToneCtcModelConfig {
-                model: path_str(&paths[0]),
-            };
-            config.model_config.tokens = path_str(&paths[1]);
-        }
-        Engine::OnlineTransducer => {
-            if paths.len() != 4 {
-                return Err(format!("streaming transducer {} needs 4 files", def.id));
-            }
-            config.model_config.transducer = OnlineTransducerModelConfig {
-                encoder: path_str(&paths[0]),
-                decoder: path_str(&paths[1]),
-                joiner: path_str(&paths[2]),
-            };
-            config.model_config.tokens = path_str(&paths[3]);
-        }
-        _ => return Err(format!("{} is not a streaming model", def.id)),
-    }
-
-    OnlineRecognizer::create(&config)
-        .ok_or_else(|| format!("failed to load streaming model {}", def.id))
-}
-
-/// Batch path for streaming models (live preview off, or its final result):
-/// feed the whole clip at once and drain the decoder.
-fn run_sherpa_online(recognizer: &OnlineRecognizer, pcm: &[f32]) -> Result<String, String> {
-    let stream = recognizer.create_stream();
-    stream.accept_waveform(SAMPLE_RATE as i32, pcm);
-    stream.input_finished();
-    while recognizer.is_ready(&stream) {
-        recognizer.decode(&stream);
-    }
-    Ok(recognizer
-        .get_result(&stream)
-        .map(|r| r.text)
-        .unwrap_or_default())
-}
-
-// --- Live (incremental) decoding for the overlay preview ---
-
-/// An incremental decode session over the cached streaming model. Feed raw
-/// mono chunks at the capture sample rate (sherpa-onnx resamples internally),
-/// poll `partial` for the current hypothesis, and call `finish` once the
-/// recording stops to get the final text.
-pub struct LiveSession {
-    loaded: Arc<Loaded>,
-    stream: OnlineStream,
-}
-
-impl LiveSession {
-    pub fn start(model_id: &str) -> Result<LiveSession, String> {
-        let (def, loaded) = loaded_by_id(model_id)?;
-        let Loaded::SherpaOnline(recognizer) = &*loaded else {
-            return Err(format!("{} is not a streaming model", def.id));
-        };
-        let stream = recognizer.create_stream();
-        Ok(LiveSession { loaded, stream })
-    }
-
-    fn recognizer(&self) -> &OnlineRecognizer {
-        match &*self.loaded {
-            Loaded::SherpaOnline(recognizer) => recognizer,
-            _ => unreachable!("checked in start"),
-        }
-    }
-
-    pub fn feed(&self, sample_rate: u32, chunk: &[f32]) {
-        self.stream.accept_waveform(sample_rate as i32, chunk);
-    }
-
-    /// Decodes everything that is ready and returns the current hypothesis.
-    pub fn partial(&self) -> String {
-        let recognizer = self.recognizer();
-        while recognizer.is_ready(&self.stream) {
-            recognizer.decode(&self.stream);
-        }
-        recognizer
-            .get_result(&self.stream)
-            .map(|r| r.text)
-            .unwrap_or_default()
-    }
-
-    /// Flushes trailing context and returns the final text.
-    pub fn finish(self) -> String {
-        self.stream.input_finished();
-        self.partial()
-    }
 }

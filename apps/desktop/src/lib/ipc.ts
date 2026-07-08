@@ -5,16 +5,9 @@ export type AppSettings = {
   modelId: string;
   language: string;
   uiLanguage: string;
-  /** Show live transcription in the overlay (streaming models only). */
-  livePreview: boolean;
 };
 
-export type ModelEngine =
-  | "whisper"
-  | "nemo_ctc"
-  | "nemo_transducer"
-  | "tone_ctc"
-  | "online_transducer";
+export type ModelEngine = "whisper" | "nemo_ctc" | "nemo_transducer";
 
 export type ModelInfo = {
   id: string;
@@ -23,15 +16,7 @@ export type ModelInfo = {
   description: string;
   engine: ModelEngine;
   languages: string;
-  /** Decodes incrementally and supports live preview. */
-  streaming: boolean;
   downloaded: boolean;
-};
-
-export type HfCatalogInfo = {
-  /** Unix seconds of the last catalog refresh. */
-  generatedAt: number;
-  models: ModelInfo[];
 };
 
 export type DownloadProgress = {
@@ -61,6 +46,5 @@ export const getSettings = () => invoke<AppSettings>("get_settings");
 export const updateSettings = (settings: AppSettings) =>
   invoke<void>("update_settings", { settings });
 export const listModels = () => invoke<ModelInfo[]>("list_models");
-export const listHfModels = () => invoke<HfCatalogInfo | null>("list_hf_models");
 export const downloadModel = (modelId: string) => invoke<void>("download_model", { modelId });
 export const deleteModel = (modelId: string) => invoke<void>("delete_model", { modelId });

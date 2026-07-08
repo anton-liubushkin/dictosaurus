@@ -5,16 +5,13 @@
   align-items: center;
   justify-content: flex-end;
   padding-bottom: 6px;
-  opacity: 1;
-  transition: opacity 0.22s ease;
 }
 
-.hidden {
-  opacity: 0;
-}
-
-.canvas {
-  display: block;
+/* Clips the mascot so it slides in from "below the screen" even though the
+   overlay window itself floats above the bottom edge. */
+.mascotClip {
+  overflow: hidden;
+  padding: 12px 12px 0;
 }
 
 .label {
@@ -26,38 +23,4 @@
   text-shadow:
     0 1px 3px rgba(0, 0, 0, 0.8),
     0 0 12px rgba(0, 0, 0, 0.5);
-}
-
-/* Live-transcription pill above the orb. */
-.partial {
-  box-sizing: border-box;
-  max-width: 520px;
-  margin-bottom: 2px;
-  padding: 8px 16px;
-  border-radius: 16px;
-  background: rgba(18, 18, 24, 0.82);
-  backdrop-filter: blur(8px);
-  -webkit-backdrop-filter: blur(8px);
-  box-shadow: 0 4px 24px rgba(0, 0, 0, 0.35);
-}
-
-/* Show only the last ~2 lines: fixed height, latest text anchored to the
-   bottom, older text clipped at the top behind a subtle fade. */
-.partialClip {
-  max-height: 42px; /* 2 lines × 21px */
-  overflow: hidden;
-  display: flex;
-  flex-direction: column;
-  justify-content: flex-end;
-  -webkit-mask-image: linear-gradient(to bottom, transparent 0, black 14px);
-  mask-image: linear-gradient(to bottom, transparent 0, black 14px);
-}
-
-.partialText {
-  font-size: 14px;
-  line-height: 21px;
-  color: rgba(255, 255, 255, 0.95);
-  text-align: center;
-  overflow-wrap: anywhere;
-  white-space: pre-wrap;
 }

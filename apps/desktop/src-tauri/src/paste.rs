@@ -42,5 +42,8 @@ fn send_paste_shortcut() -> Result<(), String> {
 
 #[cfg(not(target_os = "macos"))]
 fn send_paste_shortcut() -> Result<(), String> {
-    Err("auto-insert is not implemented on this platform yet; text was copied to the clipboard".into())
+    Err(
+        "auto-insert is not implemented on this platform yet; text was copied to the clipboard"
+            .into(),
+    )
 }

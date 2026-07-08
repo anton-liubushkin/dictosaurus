@@ -11,7 +11,6 @@
     "permissions": "Permissions",
     "dictation": "Dictation",
     "models": "Models",
-    "hfModels": "Hugging Face models",
     "general": "General"
   },
   "permissions": {
@@ -27,10 +26,7 @@
     "hotkeyDetail": "Hold to record, release to insert",
     "language": "Language",
     "languageDetail": "Spoken language, or auto-detect",
-    "languageAuto": "Auto-detect",
-    "livePreview": "Show live transcription",
-    "livePreviewDetail": "Text appears in the overlay while you speak",
-    "livePreviewUnsupported": "The selected model does not support live transcription — pick one with the Live badge"
+    "languageAuto": "Auto-detect"
   },
   "hotkeyRecorder": {
     "capturing": "Press a shortcut, or hold 2+ modifier keys and release… (Esc to cancel)"
@@ -41,12 +37,9 @@
     "delete": "Delete",
     "badge": {
       "ru": "Russian",
-      "multilingual": "Multilingual",
-      "live": "Live"
+      "multilingual": "Multilingual"
     },
     "description": {
-      "t-one-streaming-ru": "Russian with live preview: streaming, no punctuation (T-Bank)",
-      "nemo-streaming-fast-conformer-en": "English with live preview: streaming, no punctuation (NVIDIA)",
       "gigaam-v3-e2e-ctc": "Best for Russian: SOTA accuracy with punctuation (Sber)",
       "whisper-podlodka-turbo": "Whisper Large v3 Turbo fine-tuned for Russian, with punctuation (bond005)",
       "parakeet-tdt-0.6b-v3": "Best for European languages: 25 languages with punctuation (NVIDIA)",
@@ -57,15 +50,6 @@
       "large-v3-turbo-q5_0": "Great accuracy, compact and fast",
       "large-v3-turbo": "Best multilingual accuracy"
     }
-  },
-  "hfModels": {
-    "note": "Extra speech models converted for sherpa-onnx by its maintainer. Quality varies — the recommended list above is a safer choice.",
-    "searchPlaceholder": "Search models…",
-    "languageAll": "All languages",
-    "empty": "No models match the filters.",
-    "updatedJustNow": "Catalog updated just now",
-    "updatedHoursAgo_one": "Catalog updated {{count}} hour ago",
-    "updatedHoursAgo_other": "Catalog updated {{count}} hours ago"
   },
   "general": {
     "interfaceLanguage": "Interface language",

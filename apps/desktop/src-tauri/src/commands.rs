@@ -1,6 +1,6 @@
 //! Tauri commands exposed to the frontend.
 
-use crate::{hf_catalog, hotkey, models, settings::AppSettings, transcribe, AppState};
+use crate::{hotkey, models, settings::AppSettings, transcribe, AppState};
 use tauri::{AppHandle, State};
 
 #[tauri::command]
@@ -32,14 +32,6 @@ pub fn update_settings(
 #[tauri::command]
 pub fn list_models() -> Vec<models::ModelInfo> {
     models::catalog_status()
-}
-
-/// Returns the cached Hugging Face catalog and kicks off a background refresh
-/// when the cache is stale (the UI is notified via `hf-catalog-updated`).
-#[tauri::command]
-pub fn list_hf_models(app: AppHandle) -> Option<hf_catalog::HfCatalogInfo> {
-    hf_catalog::maybe_refresh(&app);
-    hf_catalog::catalog_status()
 }
 
 #[tauri::command]

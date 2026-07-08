@@ -9,10 +9,9 @@
 use tauri::{AppHandle, Manager};
 
 pub const LABEL: &str = "overlay";
-// Wide enough for the live-transcription pill next to the orb; the window is
-// transparent and click-through, so the extra area is invisible.
+// The window is transparent and click-through, so the extra area is invisible.
 const WIDTH: f64 = 560.0;
-const HEIGHT: f64 = 270.0;
+const HEIGHT: f64 = 360.0;
 const BOTTOM_MARGIN: f64 = 40.0;
 
 #[cfg(target_os = "macos")]
@@ -41,7 +40,9 @@ pub fn init(app: &AppHandle) {
         let result = PanelBuilder::<_, DictationPanel>::new(app, LABEL)
             .url(url)
             .title("Dictation")
-            .position(tauri::Position::Logical(tauri::LogicalPosition::new(0.0, 0.0)))
+            .position(tauri::Position::Logical(tauri::LogicalPosition::new(
+                0.0, 0.0,
+            )))
             .size(tauri::Size::Logical(tauri::LogicalSize::new(WIDTH, HEIGHT)))
             // NSScreenSaverWindowLevel — above fullscreen apps and games.
             .level(PanelLevel::Custom(1000))
@@ -61,7 +62,9 @@ pub fn init(app: &AppHandle) {
                     .shadow(false)
                     .accept_first_mouse(false)
                     .visible(false)
-                    .background_throttling(tauri::utils::config::BackgroundThrottlingPolicy::Disabled)
+                    .background_throttling(
+                        tauri::utils::config::BackgroundThrottlingPolicy::Disabled,
+                    )
             })
             .build();
 

@@ -1,7 +1,6 @@
 mod audio;
 mod commands;
 mod dictation;
-pub mod hf_catalog;
 mod hotkey;
 pub mod models;
 mod overlay;
@@ -53,8 +52,18 @@ pub fn run() {
             app.set_activation_policy(tauri::ActivationPolicy::Accessory);
 
             models::init_storage(app.handle());
-            hf_catalog::init(app.handle());
-            let store = settings::SettingsStore::load(app.handle());
+            let mut store = settings::SettingsStore::load(app.handle());
+            if models::def_by_id(&store.current().model_id).is_none() {
+                let mut migrated = store.current().clone();
+                log::info!(
+                    "[settings] selected model {} is no longer available; resetting to base",
+                    migrated.model_id
+                );
+                migrated.model_id = "base".into();
+                if let Err(e) = store.update(migrated) {
+                    log::warn!("[settings] failed to persist model reset: {e}");
+                }
+            }
             let hotkey_str = store.current().hotkey.clone();
 
             app.manage(AppState {
@@ -85,7 +94,6 @@ pub fn run() {
             commands::get_settings,
             commands::update_settings,
             commands::list_models,
-            commands::list_hf_models,
             commands::download_model,
             commands::delete_model,
             hotkey::start_hotkey_capture,
