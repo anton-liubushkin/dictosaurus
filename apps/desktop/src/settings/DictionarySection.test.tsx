@@ -1,5 +1,5 @@
 import { StrictMode } from "react";
-import { act, render, screen, waitFor, within } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import i18n from "../i18n/i18n";
@@ -11,7 +11,11 @@ import {
   type DictionaryDocument,
   type DictionaryIpcError,
 } from "../lib/ipc";
-import DictionarySection from "./DictionarySection";
+import DictionarySection, {
+  evaluateEntryDraft,
+  formatVariants,
+  parseVariants,
+} from "./DictionarySection";
 
 vi.mock("../lib/ipc", () => ({
   getDictionary: vi.fn(),
@@ -68,6 +72,62 @@ function deferred<T>() {
   return { promise, resolve, reject };
 }
 
+function entryRow(name: string) {
+  return screen.getByRole("group", { name });
+}
+
+function variantsInput(group: HTMLElement) {
+  return within(group).getByPlaceholderText("variant one, variant two");
+}
+
+function termInput(group: HTMLElement) {
+  return within(group).getByPlaceholderText("Preferred spelling");
+}
+
+
+describe("evaluateEntryDraft", () => {
+  const saved = { term: "Rust", aliases: ["rustlang"] };
+
+  it("requests save for normalized changes", () => {
+    expect(evaluateEntryDraft("Rustacean", "Ferris", saved)).toEqual({
+      action: "save",
+      term: "Rustacean",
+      aliases: ["Ferris"],
+    });
+  });
+
+  it("skips save when normalized values are unchanged", () => {
+    expect(evaluateEntryDraft("  Rust  ", " rustlang , ", saved)).toEqual({ action: "noop" });
+  });
+
+  it("shows term required when variants exist without a canonical term", () => {
+    expect(evaluateEntryDraft("", "ferris", saved)).toEqual({
+      action: "hint",
+      hint: "termRequired",
+    });
+  });
+
+  it("allows saving a term without variants", () => {
+    expect(evaluateEntryDraft("Rust", "", saved)).toEqual({
+      action: "save",
+      term: "Rust",
+      aliases: [],
+      hint: "variantsEmpty",
+    });
+  });
+});
+
+describe("parseVariants", () => {
+  it("splits comma-separated values and trims whitespace", () => {
+    expect(parseVariants("rustlang,  ferris  , py")).toEqual(["rustlang", "ferris", "py"]);
+    expect(parseVariants("one,, two, , three")).toEqual(["one", "two", "three"]);
+  });
+
+  it("formats aliases back into comma-separated text", () => {
+    expect(formatVariants(["rustlang", "ferris"])).toBe("rustlang, ferris");
+  });
+});
+
 describe("DictionarySection", () => {
   beforeEach(async () => {
     vi.resetAllMocks();
@@ -76,6 +136,10 @@ describe("DictionarySection", () => {
     resetDictionaryMock.mockResolvedValue();
     await i18n.changeLanguage("en");
   });
+
+  function user() {
+    return userEvent.setup();
+  }
 
   it("shows loading and renders the loaded dictionary", async () => {
     let resolveDictionary: ((value: DictionaryDocument) => void) | undefined;
@@ -89,23 +153,26 @@ describe("DictionarySection", () => {
 
     expect(screen.getByText("Loading custom vocabulary…")).toBeInTheDocument();
 
-    resolveDictionary?.(cloneDocument());
+    await act(async () => {
+      resolveDictionary?.(cloneDocument());
+    });
 
-    const entry = await screen.findByRole("group", { name: "Rust" });
-    expect(within(entry).getByDisplayValue("Rust")).toBeInTheDocument();
-    expect(within(entry).getByDisplayValue("rustlang")).toBeInTheDocument();
+    const row = await screen.findByRole("group", { name: "Rust" });
+    expect(variantsInput(row)).toHaveValue("rustlang");
+    expect(termInput(row)).toHaveValue("Rust");
   });
 
-  it("adds a valid entry by saving the whole document", async () => {
+  it("adds a row and auto-saves a valid entry after debounce", async () => {
     getDictionaryMock.mockResolvedValue(cloneDocument());
-    const user = userEvent.setup();
 
     render(<DictionarySection />);
+    await screen.findByRole("group", { name: "Rust" });
 
-    const form = await screen.findByRole("group", { name: "Add entry" });
-    await user.type(within(form).getByLabelText("Canonical term"), "TypeScript");
-    await user.type(within(form).getByLabelText("Alias"), "TS");
-    await user.click(within(form).getByRole("button", { name: "Add entry" }));
+    await user().click(screen.getByRole("button", { name: "Add entry" }));
+    const row = screen.getByRole("group", { name: "New entry" });
+    await user().type(variantsInput(row), "TS, type script");
+    await user().type(termInput(row), "TypeScript");
+    await user().tab();
 
     await waitFor(() =>
       expect(updateDictionaryMock).toHaveBeenCalledWith({
@@ -116,7 +183,7 @@ describe("DictionarySection", () => {
           {
             id: expect.any(String),
             term: "TypeScript",
-            aliases: ["TS"],
+            aliases: ["TS", "type script"],
             enabled: true,
           },
         ],
@@ -125,48 +192,75 @@ describe("DictionarySection", () => {
     expect(await screen.findByRole("group", { name: "TypeScript" })).toBeInTheDocument();
   });
 
-  it("does not persist a blank entry", async () => {
+  it("auto-saves on blur without waiting for debounce", async () => {
     getDictionaryMock.mockResolvedValue(cloneDocument());
-    const user = userEvent.setup();
 
     render(<DictionarySection />);
+    const row = await screen.findByRole("group", { name: "Rust" });
+    await user().clear(termInput(row));
+    await user().type(termInput(row), "Rustacean");
+    await user().tab();
 
-    const form = await screen.findByRole("group", { name: "Add entry" });
-    await user.click(within(form).getByRole("button", { name: "Add entry" }));
-
-    expect(await screen.findByRole("alert")).toHaveTextContent("Canonical term is required.");
-    expect(updateDictionaryMock).not.toHaveBeenCalled();
+    await waitFor(() =>
+      expect(updateDictionaryMock).toHaveBeenCalledWith({
+        ...document,
+        entries: [{ ...document.entries[0], term: "Rustacean" }],
+      }),
+    );
   });
 
-  it("rolls back an optimistic entry save and displays the backend error", async () => {
+  it("never rewrites a focused field after a debounced save", async () => {
+    getDictionaryMock.mockResolvedValue(cloneDocument());
+    render(<DictionarySection />);
+
+    const row = await screen.findByRole("group", { name: "Rust" });
+    const input = variantsInput(row);
+    await user().click(input);
+    await user().clear(input);
+    await user().type(input, "  ferris  ,  rust lang  ");
+
+    await waitFor(() => expect(updateDictionaryMock).toHaveBeenCalled());
+
+    expect(input).toHaveFocus();
+    expect(input).toHaveValue("  ferris  ,  rust lang  ");
+  });
+
+  it("does not persist a blank new row", async () => {
+    getDictionaryMock.mockResolvedValue(cloneDocument());
+
+    render(<DictionarySection />);
+    await screen.findByRole("group", { name: "Rust" });
+
+    await user().click(screen.getByRole("button", { name: "Add entry" }));
+    const row = screen.getByRole("group", { name: "New entry" });
+    await user().click(termInput(row));
+    await user().tab();
+
+    expect(updateDictionaryMock).not.toHaveBeenCalled();
+    expect(screen.queryByRole("group", { name: "New entry" })).not.toBeInTheDocument();
+  });
+
+  it("rolls back an optimistic save and displays the backend error", async () => {
     getDictionaryMock.mockResolvedValue(cloneDocument());
     updateDictionaryMock.mockRejectedValue(
       dictionaryError("validation", "alias conflict: rustlang"),
     );
-    const user = userEvent.setup();
-
     render(<DictionarySection />);
 
-    const entry = await screen.findByRole("group", { name: "Rust" });
-    const term = within(entry).getByLabelText("Canonical term");
-    const alias = within(entry).getByLabelText("Alias 1");
-    await user.clear(term);
-    await user.type(term, "Rust Language");
-    await user.clear(alias);
-    await user.type(alias, "Ferris");
-    await user.click(within(entry).getByRole("button", { name: "Save" }));
+    const row = await screen.findByRole("group", { name: "Rust" });
+    await user().clear(variantsInput(row));
+    await user().type(variantsInput(row), "Ferris");
+    await user().clear(termInput(row));
+    await user().type(termInput(row), "Rust Language");
+    await user().tab();
 
     const alert = await screen.findByRole("alert");
     expect(alert).toHaveTextContent(
       "The custom vocabulary contains invalid or conflicting values.",
     );
     expect(alert).toHaveTextContent("alias conflict: rustlang");
-    expect(screen.getByDisplayValue("Rust Language")).toBeInTheDocument();
-    expect(screen.getByDisplayValue("Ferris")).toBeInTheDocument();
-    expect(updateDictionaryMock).toHaveBeenCalledWith({
-      ...document,
-      entries: [{ ...document.entries[0], term: "Rust Language", aliases: ["Ferris"] }],
-    });
+    expect(termInput(row)).toHaveValue("Rust Language");
+    expect(variantsInput(row)).toHaveValue("Ferris");
   });
 
   it("replaces optimistic values with the canonical document returned by the backend", async () => {
@@ -181,39 +275,32 @@ describe("DictionarySection", () => {
         },
       ],
     });
-    const user = userEvent.setup();
-
     render(<DictionarySection />);
 
-    const entry = await screen.findByRole("group", { name: "Rust" });
-    const term = within(entry).getByLabelText("Canonical term");
-    const alias = within(entry).getByLabelText("Alias 1");
-    await user.clear(term);
-    await user.type(term, "  Rust   Language  ");
-    await user.clear(alias);
-    await user.type(alias, "  rust   lang  ");
-    await user.click(within(entry).getByRole("button", { name: "Add alias" }));
-    await user.type(within(entry).getByLabelText("Alias 2"), "RUST LANG");
-    await user.click(within(entry).getByRole("button", { name: "Save" }));
+    const row = await screen.findByRole("group", { name: "Rust" });
+    await user().clear(variantsInput(row));
+    await user().type(variantsInput(row), "  rust   lang  , RUST LANG");
+    await user().clear(termInput(row));
+    await user().type(termInput(row), "  Rust   Language  ");
+    await user().tab();
 
-    const canonicalEntry = await screen.findByRole("group", { name: "Rust Language" });
-    expect(within(canonicalEntry).getByLabelText("Canonical term")).toHaveValue("Rust Language");
-    expect(within(canonicalEntry).getByLabelText("Alias 1")).toHaveValue("rust lang");
-    expect(within(canonicalEntry).queryByLabelText("Alias 2")).not.toBeInTheDocument();
+    const canonicalRow = await screen.findByRole("group", { name: "Rust Language" });
+    await waitFor(() => {
+      expect(termInput(canonicalRow)).toHaveValue("Rust Language");
+      expect(variantsInput(canonicalRow)).toHaveValue("rust lang");
+    });
   });
 
   it("resets a dictionary that failed to load", async () => {
     getDictionaryMock
       .mockRejectedValueOnce(dictionaryError("corruptJson", "malformed source"))
       .mockResolvedValueOnce({ version: 1, enabled: true, entries: [] });
-    const user = userEvent.setup();
-
     render(<DictionarySection />);
 
     expect(await screen.findByRole("alert")).toHaveTextContent(
       "The custom vocabulary file is corrupted.",
     );
-    await user.click(screen.getByRole("button", { name: "Reset dictionary" }));
+    await user().click(screen.getByRole("button", { name: "Reset dictionary" }));
 
     await waitFor(() => expect(resetDictionaryMock).toHaveBeenCalledOnce());
     expect(await screen.findByRole("switch", { name: "Enable custom vocabulary" })).toBeChecked();
@@ -226,15 +313,12 @@ describe("DictionarySection", () => {
     resetDictionaryMock.mockRejectedValueOnce(
       dictionaryError("storage", "temporary write failure"),
     );
-    const user = userEvent.setup();
-
     render(<DictionarySection />);
 
-    await user.click(await screen.findByRole("button", { name: "Reset dictionary" }));
+    await user().click(await screen.findByRole("button", { name: "Reset dictionary" }));
     expect(await screen.findByRole("alert")).toHaveTextContent("temporary write failure");
 
-    const retry = screen.getByRole("button", { name: "Reset dictionary" });
-    await user.click(retry);
+    await user().click(screen.getByRole("button", { name: "Reset dictionary" }));
 
     expect(await screen.findByRole("switch", { name: "Enable custom vocabulary" })).toBeChecked();
     expect(resetDictionaryMock).toHaveBeenCalledTimes(2);
@@ -258,11 +342,9 @@ describe("DictionarySection", () => {
       dictionaryError("storage", "open dictionary: permission denied"),
     );
     reloadDictionaryMock.mockResolvedValue(cloneDocument());
-    const user = userEvent.setup();
-
     render(<DictionarySection />);
 
-    await user.click(await screen.findByRole("button", { name: "Retry" }));
+    await user().click(await screen.findByRole("button", { name: "Retry" }));
 
     expect(await screen.findByRole("group", { name: "Rust" })).toBeInTheDocument();
     expect(reloadDictionaryMock).toHaveBeenCalledOnce();
@@ -279,15 +361,13 @@ describe("DictionarySection", () => {
       .mockReturnValueOnce(staleLoad.promise)
       .mockRejectedValueOnce(dictionaryError("storage", "temporary read failure"));
     reloadDictionaryMock.mockResolvedValue(reloaded);
-    const user = userEvent.setup();
-
     render(
       <StrictMode>
         <DictionarySection />
       </StrictMode>,
     );
 
-    await user.click(await screen.findByRole("button", { name: "Retry" }));
+    await user().click(await screen.findByRole("button", { name: "Retry" }));
     expect(await screen.findByRole("group", { name: "Fresh" })).toBeInTheDocument();
 
     await act(async () => {
@@ -310,15 +390,13 @@ describe("DictionarySection", () => {
       .mockReturnValueOnce(staleLoad.promise)
       .mockRejectedValueOnce(dictionaryError("corruptJson", "malformed source"))
       .mockResolvedValueOnce(resetDocument);
-    const user = userEvent.setup();
-
     render(
       <StrictMode>
         <DictionarySection />
       </StrictMode>,
     );
 
-    await user.click(await screen.findByRole("button", { name: "Reset dictionary" }));
+    await user().click(await screen.findByRole("button", { name: "Reset dictionary" }));
     expect(await screen.findByRole("group", { name: "Fresh" })).toBeInTheDocument();
 
     await act(async () => {
@@ -335,19 +413,16 @@ describe("DictionarySection", () => {
     getDictionaryMock
       .mockReturnValueOnce(staleLoad.promise)
       .mockResolvedValueOnce(cloneDocument());
-    const user = userEvent.setup();
-
     render(
       <StrictMode>
         <DictionarySection />
       </StrictMode>,
     );
 
-    const entry = await screen.findByRole("group", { name: "Rust" });
-    const term = within(entry).getByLabelText("Canonical term");
-    await user.clear(term);
-    await user.type(term, "Rustacean");
-    await user.click(within(entry).getByRole("button", { name: "Save" }));
+    const row = await screen.findByRole("group", { name: "Rust" });
+    await user().clear(termInput(row));
+    await user().type(termInput(row), "Rustacean");
+    await user().tab();
     expect(await screen.findByRole("group", { name: "Rustacean" })).toBeInTheDocument();
 
     await act(async () => {
@@ -359,135 +434,71 @@ describe("DictionarySection", () => {
     expect(screen.queryByRole("group", { name: "Rust" })).not.toBeInTheDocument();
   });
 
-  it("persists global and per-entry toggles in order", async () => {
+  it("persists the global enable toggle", async () => {
     getDictionaryMock.mockResolvedValue(cloneDocument());
-    const user = userEvent.setup();
-
     render(<DictionarySection />);
 
-    await user.click(
+    await user().click(
       await screen.findByRole("switch", { name: "Enable custom vocabulary" }),
     );
     await waitFor(() =>
-      expect(updateDictionaryMock).toHaveBeenNthCalledWith(1, {
+      expect(updateDictionaryMock).toHaveBeenCalledWith({
         ...document,
         enabled: false,
-      }),
-    );
-
-    await user.click(screen.getByRole("switch", { name: "Enable Rust" }));
-    await waitFor(() =>
-      expect(updateDictionaryMock).toHaveBeenNthCalledWith(2, {
-        ...document,
-        enabled: false,
-        entries: [{ ...document.entries[0], enabled: false }],
-      }),
-    );
-  });
-
-  it("keeps an unsaved entry draft when toggling that entry", async () => {
-    getDictionaryMock.mockResolvedValue(cloneDocument());
-    const user = userEvent.setup();
-
-    render(<DictionarySection />);
-
-    const entry = await screen.findByRole("group", { name: "Rust" });
-    const term = within(entry).getByLabelText("Canonical term");
-    await user.clear(term);
-    await user.type(term, "Rustacean");
-    expect(updateDictionaryMock).not.toHaveBeenCalled();
-
-    await user.click(within(entry).getByRole("switch", { name: "Enable Rust" }));
-    await waitFor(() => expect(updateDictionaryMock).toHaveBeenCalledTimes(1));
-    await user.click(within(entry).getByRole("button", { name: "Save" }));
-
-    await waitFor(() =>
-      expect(updateDictionaryMock).toHaveBeenNthCalledWith(2, {
-        ...document,
-        entries: [{ ...document.entries[0], term: "Rustacean", enabled: false }],
       }),
     );
   });
 
   it("keeps entry A draft across global toggle and entry B save responses", async () => {
     getDictionaryMock.mockResolvedValue(structuredClone(multiEntryDocument));
-    const user = userEvent.setup();
+    updateDictionaryMock.mockImplementation(async (next) => {
+      if (next.enabled === false) {
+        return structuredClone({ ...multiEntryDocument, enabled: false });
+      }
+      return structuredClone(next);
+    });
+    const interaction = userEvent.setup({ delay: null });
 
     render(<DictionarySection />);
 
-    const rustEntry = await screen.findByRole("group", { name: "Rust" });
-    const rustTerm = within(rustEntry).getByLabelText("Canonical term");
-    const rustAlias = within(rustEntry).getByLabelText("Alias 1");
-    await user.clear(rustTerm);
-    await user.type(rustTerm, "Rustacean");
-    await user.clear(rustAlias);
-    await user.type(rustAlias, "Ferris");
+    const rustRow = await screen.findByRole("group", { name: "Rust" });
+    const rustTerm = termInput(rustRow);
+    const rustVariants = variantsInput(rustRow);
+    fireEvent.input(rustTerm, { target: { value: "Rustacean" } });
+    fireEvent.input(rustVariants, { target: { value: "Ferris" } });
 
-    await user.click(screen.getByRole("switch", { name: "Enable custom vocabulary" }));
-    await waitFor(() => expect(updateDictionaryMock).toHaveBeenCalledTimes(1));
-    expect(rustTerm).toHaveValue("Rustacean");
-    expect(rustAlias).toHaveValue("Ferris");
-
-    const pythonEntry = screen.getByRole("group", { name: "Python" });
-    const pythonTerm = within(pythonEntry).getByLabelText("Canonical term");
-    await user.clear(pythonTerm);
-    await user.type(pythonTerm, "Python Language");
-    await user.click(within(pythonEntry).getByRole("button", { name: "Save" }));
-    await waitFor(() => expect(updateDictionaryMock).toHaveBeenCalledTimes(2));
-
-    expect(rustTerm).toHaveValue("Rustacean");
-    expect(rustAlias).toHaveValue("Ferris");
-  });
-
-  it("adds an alias to the draft and persists it only on Save", async () => {
-    getDictionaryMock.mockResolvedValue(cloneDocument());
-    const user = userEvent.setup();
-
-    render(<DictionarySection />);
-
-    const entry = await screen.findByRole("group", { name: "Rust" });
-    await user.click(within(entry).getByRole("button", { name: "Add alias" }));
-    await user.type(within(entry).getByLabelText("Alias 2"), "Ferris");
-    expect(updateDictionaryMock).not.toHaveBeenCalled();
-    await user.click(within(entry).getByRole("button", { name: "Save" }));
-
+    await interaction.click(screen.getByRole("switch", { name: "Enable custom vocabulary" }));
     await waitFor(() =>
-      expect(updateDictionaryMock).toHaveBeenCalledWith({
-        ...document,
-        entries: [{ ...document.entries[0], aliases: ["rustlang", "Ferris"] }],
-      }),
+      expect(updateDictionaryMock.mock.calls.some((call) => call[0].enabled === false)).toBe(
+        true,
+      ),
     );
-  });
+    expect(rustTerm).toHaveValue("Rustacean");
+    expect(rustVariants).toHaveValue("Ferris");
 
-  it("removes an alias from the draft and persists it only on Save", async () => {
-    getDictionaryMock.mockResolvedValue(cloneDocument());
-    const user = userEvent.setup();
-
-    render(<DictionarySection />);
-
-    const entry = await screen.findByRole("group", { name: "Rust" });
-    await user.click(
-      within(entry).getByRole("button", { name: "Remove alias 1 from Rust" }),
-    );
-    expect(updateDictionaryMock).not.toHaveBeenCalled();
-    await user.click(within(entry).getByRole("button", { name: "Save" }));
-
+    const pythonRow = entryRow("Python");
+    const pythonTerm = termInput(pythonRow);
+    await interaction.click(pythonTerm);
+    fireEvent.input(pythonTerm, { target: { value: "Python Language" } });
+    await interaction.tab();
     await waitFor(() =>
-      expect(updateDictionaryMock).toHaveBeenCalledWith({
-        ...document,
-        entries: [{ ...document.entries[0], aliases: [] }],
-      }),
+      expect(
+        updateDictionaryMock.mock.calls.some((call) =>
+          call[0].entries.some((entry) => entry.term === "Python Language"),
+        ),
+      ).toBe(true),
     );
+
+    expect(rustTerm).toHaveValue("Rustacean");
+    expect(rustVariants).toHaveValue("Ferris");
   });
 
   it("deletes an entry by persisting the remaining document", async () => {
     getDictionaryMock.mockResolvedValue(cloneDocument());
-    const user = userEvent.setup();
-
     render(<DictionarySection />);
 
-    const entry = await screen.findByRole("group", { name: "Rust" });
-    await user.click(within(entry).getByRole("button", { name: "Delete" }));
+    const row = await screen.findByRole("group", { name: "Rust" });
+    await user().click(within(row).getByRole("button", { name: "Delete Rust" }));
 
     await waitFor(() =>
       expect(updateDictionaryMock).toHaveBeenCalledWith({

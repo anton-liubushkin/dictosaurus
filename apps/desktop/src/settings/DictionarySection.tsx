@@ -13,17 +13,10 @@ import sharedStyles from "./SettingsView.module.css";
 import styles from "./DictionarySection.module.css";
 
 type LoadState = "loading" | "healthy" | "error";
-type EntryDraft = Pick<DictionaryEntry, "term" | "aliases">;
+
+const SAVE_DEBOUNCE_MS = 400;
 
 let fallbackIdSequence = 0;
-
-function draftMatchesEntry(draft: EntryDraft, entry: DictionaryEntry): boolean {
-  return (
-    draft.term === entry.term &&
-    draft.aliases.length === entry.aliases.length &&
-    draft.aliases.every((alias, index) => alias === entry.aliases[index])
-  );
-}
 
 function canResetError(error: DictionaryIpcError): boolean {
   return error.code === "corruptJson" || error.code === "unsupportedVersion";
@@ -43,6 +36,59 @@ function createEntryId(entries: DictionaryEntry[]): string {
   return id;
 }
 
+export function parseVariants(text: string): string[] {
+  return text
+    .split(",")
+    .map((part) => part.trim())
+    .filter(Boolean);
+}
+
+export function formatVariants(aliases: string[]): string {
+  return aliases.join(", ");
+}
+
+function isBlankEntry(term: string, aliases: string[]): boolean {
+  return !term.trim() && aliases.length === 0;
+}
+
+function aliasesEqual(left: string[], right: string[]): boolean {
+  return left.length === right.length && left.every((value, index) => value === right[index]);
+}
+
+export type EntryDraftEvaluation =
+  | { action: "save"; term: string; aliases: string[]; hint?: "variantsEmpty" }
+  | { action: "discard" }
+  | { action: "hint"; hint: "termRequired" }
+  | { action: "noop" };
+
+export function evaluateEntryDraft(
+  term: string,
+  variantsText: string,
+  saved: Pick<DictionaryEntry, "term" | "aliases">,
+): EntryDraftEvaluation {
+  const trimmedTerm = term.trim();
+  const aliases = parseVariants(variantsText);
+
+  if (isBlankEntry(term, aliases)) {
+    return { action: "discard" };
+  }
+
+  if (!trimmedTerm) {
+    return { action: "hint", hint: "termRequired" };
+  }
+
+  if (trimmedTerm === saved.term && aliasesEqual(aliases, saved.aliases)) {
+    return { action: "noop" };
+  }
+
+  return {
+    action: "save",
+    term: trimmedTerm,
+    aliases,
+    ...(aliases.length === 0 ? { hint: "variantsEmpty" as const } : {}),
+  };
+}
+
 export default function DictionarySection() {
   const { t } = useTranslation("common");
   const [loadState, setLoadState] = useState<LoadState>("loading");
@@ -51,8 +97,14 @@ export default function DictionarySection() {
   const [canReset, setCanReset] = useState(false);
   const [operationError, setOperationError] = useState<DictionaryIpcError | null>(null);
   const [saving, setSaving] = useState(false);
-  const savingRef = useRef(false);
+  const documentRef = useRef<DictionaryDocument | null>(null);
+  const persistQueueRef = useRef<Promise<DictionaryDocument | null>>(Promise.resolve(null));
   const requestGenerationRef = useRef(0);
+
+  useEffect(() => {
+    documentRef.current = document;
+  }, [document]);
+
   const load = useCallback(async () => {
     const generation = ++requestGenerationRef.current;
     setLoadState("loading");
@@ -80,40 +132,45 @@ export default function DictionarySection() {
     };
   }, [load]);
 
-  const persist = useCallback(
-    async (next: DictionaryDocument): Promise<boolean> => {
-      if (!document || savingRef.current) return false;
+  const enqueuePersist = useCallback(
+    (
+      buildNext: (current: DictionaryDocument) => DictionaryDocument,
+    ): Promise<DictionaryDocument | null> => {
+      const run = async (): Promise<DictionaryDocument | null> => {
+        const current = documentRef.current;
+        if (!current) return null;
 
-      const previous = document;
-      const generation = ++requestGenerationRef.current;
-      savingRef.current = true;
-      setSaving(true);
-      setOperationError(null);
-      setDocument(next);
+        const generation = ++requestGenerationRef.current;
+        setOperationError(null);
 
-      try {
-        const saved = await updateDictionary(next);
-        if (generation === requestGenerationRef.current) setDocument(saved);
-        return true;
-      } catch (error) {
-        if (generation === requestGenerationRef.current) {
-          setDocument(previous);
-          setOperationError(error as DictionaryIpcError);
+        try {
+          const saved = await updateDictionary(buildNext(current));
+          if (generation === requestGenerationRef.current) {
+            documentRef.current = saved;
+            setDocument(saved);
+          }
+          return saved;
+        } catch (error) {
+          if (generation === requestGenerationRef.current) {
+            setOperationError(error as DictionaryIpcError);
+          }
+          return null;
         }
-        return false;
-      } finally {
-        savingRef.current = false;
-        setSaving(false);
-      }
+      };
+
+      persistQueueRef.current = persistQueueRef.current.then(run, run);
+      return persistQueueRef.current;
     },
-    [document],
+    [],
+  );
+
+  const persist = useCallback(
+    async (next: DictionaryDocument) => (await enqueuePersist(() => next)) !== null,
+    [enqueuePersist],
   );
 
   const reset = useCallback(async () => {
-    if (savingRef.current) return;
-
     const generation = ++requestGenerationRef.current;
-    savingRef.current = true;
     setSaving(true);
     try {
       await resetDictionary();
@@ -126,20 +183,17 @@ export default function DictionarySection() {
         setLoadState("error");
       }
     } finally {
-      savingRef.current = false;
       setSaving(false);
     }
   }, [load]);
 
   const retry = useCallback(async () => {
-    if (savingRef.current) return;
-
     const generation = ++requestGenerationRef.current;
-    savingRef.current = true;
     setSaving(true);
     try {
       const reloaded = await reloadDictionary();
       if (generation !== requestGenerationRef.current) return;
+      documentRef.current = reloaded;
       setDocument(reloaded);
       setLoadError(null);
       setCanReset(false);
@@ -152,24 +206,52 @@ export default function DictionarySection() {
         setLoadState("error");
       }
     } finally {
-      savingRef.current = false;
       setSaving(false);
     }
   }, []);
 
-  const addEntry = useCallback(
-    async (term: string, alias: string): Promise<boolean> => {
-      if (!document) return false;
+  const addRow = useCallback(() => {
+    if (!document) return;
+    const entry: DictionaryEntry = {
+      id: createEntryId(document.entries),
+      term: "",
+      aliases: [],
+      enabled: true,
+    };
+    setDocument({ ...document, entries: [...document.entries, entry] });
+  }, [document]);
 
-      const entry: DictionaryEntry = {
-        id: createEntryId(document.entries),
-        term: term.trim(),
-        aliases: alias.trim() ? [alias.trim()] : [],
-        enabled: true,
-      };
-      return persist({ ...document, entries: [...document.entries, entry] });
+  const removeRow = useCallback(
+    (entryId: string) => {
+      if (!document) return;
+      setDocument({
+        ...document,
+        entries: document.entries.filter((item) => item.id !== entryId),
+      });
     },
-    [document, persist],
+    [document],
+  );
+
+  const saveEntry = useCallback(
+    async (entryId: string, term: string, aliases: string[]) => {
+      const saved = await enqueuePersist((current) => ({
+        ...current,
+        entries: current.entries.map((item) =>
+          item.id === entryId ? { ...item, term, aliases, enabled: true } : item,
+        ),
+      }));
+      return saved?.entries.find((item) => item.id === entryId) ?? null;
+    },
+    [enqueuePersist],
+  );
+
+  const deleteEntry = useCallback(
+    (entryId: string) =>
+      enqueuePersist((current) => ({
+        ...current,
+        entries: current.entries.filter((item) => item.id !== entryId),
+      })),
+    [enqueuePersist],
   );
 
   return (
@@ -235,42 +317,41 @@ export default function DictionarySection() {
               </p>
             )}
 
-            <div className={styles.entries}>
+            <div className={styles.table}>
+              {document.entries.length > 0 && (
+                <div className={styles.tableHeader}>
+                  <span>{t("dictionary.variants")}</span>
+                  <span aria-hidden="true" />
+                  <span>{t("dictionary.term")}</span>
+                  <span aria-hidden="true" />
+                </div>
+              )}
+
               {document.entries.length === 0 && (
                 <p className={styles.empty}>{t("dictionary.empty")}</p>
               )}
+
               {document.entries.map((entry) => (
-                <EntryEditor
+                <EntryRow
                   key={entry.id}
                   entry={entry}
-                  saving={saving}
-                  onSave={(nextEntry) =>
-                    persist({
-                      ...document,
-                      entries: document.entries.map((item) =>
-                        item.id === entry.id ? nextEntry : item,
-                      ),
-                    })
-                  }
-                  onToggle={() =>
-                    void persist({
-                      ...document,
-                      entries: document.entries.map((item) =>
-                        item.id === entry.id ? { ...item, enabled: !item.enabled } : item,
-                      ),
-                    })
-                  }
-                  onDelete={() =>
-                    void persist({
-                      ...document,
-                      entries: document.entries.filter((item) => item.id !== entry.id),
-                    })
-                  }
+                  onSave={(term, aliases) => saveEntry(entry.id, term, aliases)}
+                  onDelete={() => void deleteEntry(entry.id)}
+                  onDiscard={() => removeRow(entry.id)}
                 />
               ))}
             </div>
 
-            <AddEntryForm disabled={saving} onAdd={addEntry} />
+            <div className={styles.footer}>
+              <button
+                type="button"
+                className={sharedStyles.buttonSecondary}
+                disabled={saving}
+                onClick={addRow}
+              >
+                {t("dictionary.add")}
+              </button>
+            </div>
           </>
         )}
       </div>
@@ -304,213 +385,227 @@ function Switch({
   );
 }
 
-function EntryEditor({
+function EntryRow({
   entry,
-  saving,
   onSave,
-  onToggle,
   onDelete,
+  onDiscard,
 }: {
   entry: DictionaryEntry;
-  saving: boolean;
-  onSave: (entry: DictionaryEntry) => Promise<boolean>;
-  onToggle: () => void;
+  onSave: (term: string, aliases: string[]) => Promise<DictionaryEntry | null>;
   onDelete: () => void;
+  onDiscard: () => void;
 }) {
   const { t } = useTranslation("common");
-  const [draft, setDraft] = useState<EntryDraft>({
+  const [rowHint, setRowHint] = useState<"termRequired" | "variantsEmpty" | null>(null);
+  const initialDraftRef = useRef({
     term: entry.term,
-    aliases: entry.aliases,
+    variants: formatVariants(entry.aliases),
   });
-  const [dirty, setDirty] = useState(false);
-  const [validationError, setValidationError] = useState<string | null>(null);
+  const variantsInputRef = useRef<HTMLInputElement>(null);
+  const termInputRef = useRef<HTMLInputElement>(null);
+  const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const focusedFieldRef = useRef<"variants" | "term" | null>(null);
+  const hasUnblurredEditsRef = useRef({ variants: false, term: false });
+  const draftRef = useRef(initialDraftRef.current);
+  const savedEntryRef = useRef({ term: entry.term, aliases: entry.aliases });
+  const rowLabel = entry.term.trim() || t("dictionary.newEntry");
 
   useEffect(() => {
-    if (dirty) return;
-    setDraft((current) =>
-      draftMatchesEntry(current, entry)
-        ? current
-        : { term: entry.term, aliases: entry.aliases },
-    );
-  }, [dirty, entry]);
+    savedEntryRef.current = { term: entry.term, aliases: entry.aliases };
 
-  const changeDraft = (next: EntryDraft) => {
-    setDraft(next);
-    setDirty(!draftMatchesEntry(next, entry));
-  };
-
-  const save = async () => {
-    if (!draft.term.trim()) {
-      setValidationError(t("dictionary.termRequired"));
-      return;
+    const variants = formatVariants(entry.aliases);
+    if (
+      focusedFieldRef.current !== "variants" &&
+      !hasUnblurredEditsRef.current.variants
+    ) {
+      draftRef.current.variants = variants;
+      if (variantsInputRef.current) variantsInputRef.current.value = variants;
     }
-    if (draft.aliases.some((alias) => !alias.trim())) {
-      setValidationError(t("dictionary.aliasRequired"));
-      return;
+    if (focusedFieldRef.current !== "term" && !hasUnblurredEditsRef.current.term) {
+      draftRef.current.term = entry.term;
+      if (termInputRef.current) termInputRef.current.value = entry.term;
     }
+  }, [entry.aliases, entry.term]);
 
-    setValidationError(null);
-    const saved = await onSave({
-      ...entry,
-      term: draft.term.trim(),
-      aliases: draft.aliases.map((alias) => alias.trim()),
-    });
-    if (saved) setDirty(false);
-  };
-
-  return (
-    <div className={styles.entry} role="group" aria-label={entry.term}>
-      <div className={styles.entryHeader}>
-        <Switch
-          checked={entry.enabled}
-          disabled={saving}
-          label={t("dictionary.entryEnabled", { term: entry.term })}
-          onChange={onToggle}
-        />
-        <button
-          type="button"
-          className={sharedStyles.buttonGhost}
-          disabled={saving}
-          onClick={onDelete}
-        >
-          {t("dictionary.delete")}
-        </button>
-      </div>
-
-      <label className={styles.field}>
-        <span>{t("dictionary.term")}</span>
-        <input
-          className={styles.input}
-          value={draft.term}
-          disabled={saving}
-          onChange={(event) => changeDraft({ ...draft, term: event.target.value })}
-        />
-      </label>
-
-      <div className={styles.aliases}>
-        {draft.aliases.map((alias, index) => (
-          <div className={styles.aliasRow} key={index}>
-            <label className={styles.field}>
-              <span>{t("dictionary.aliasNumber", { number: index + 1 })}</span>
-              <input
-                className={styles.input}
-                value={alias}
-                disabled={saving}
-                onChange={(event) =>
-                  changeDraft({
-                    ...draft,
-                    aliases: draft.aliases.map((item, aliasIndex) =>
-                      aliasIndex === index ? event.target.value : item,
-                    ),
-                  })
-                }
-              />
-            </label>
-            <button
-              type="button"
-              className={styles.iconButton}
-              aria-label={t("dictionary.removeAlias", { number: index + 1, term: entry.term })}
-              disabled={saving}
-              onClick={() =>
-                changeDraft({
-                  ...draft,
-                  aliases: draft.aliases.filter((_, aliasIndex) => aliasIndex !== index),
-                })
-              }
-            >
-              &times;
-            </button>
-          </div>
-        ))}
-      </div>
-
-      {validationError && (
-        <p className={styles.validationError} role="alert">
-          {validationError}
-        </p>
-      )}
-
-      <div className={styles.entryActions}>
-        <button
-          type="button"
-          className={sharedStyles.buttonSecondary}
-          disabled={saving}
-          onClick={() => changeDraft({ ...draft, aliases: [...draft.aliases, ""] })}
-        >
-          {t("dictionary.addAlias")}
-        </button>
-        <button
-          type="button"
-          className={sharedStyles.buttonPrimary}
-          disabled={saving}
-          onClick={() => void save()}
-        >
-          {t("dictionary.save")}
-        </button>
-      </div>
-    </div>
+  useEffect(
+    () => () => {
+      if (debounceRef.current) clearTimeout(debounceRef.current);
+    },
+    [],
   );
-}
 
-function AddEntryForm({
-  disabled,
-  onAdd,
-}: {
-  disabled: boolean;
-  onAdd: (term: string, alias: string) => Promise<boolean>;
-}) {
-  const { t } = useTranslation("common");
-  const [term, setTerm] = useState("");
-  const [alias, setAlias] = useState("");
-  const [validationError, setValidationError] = useState<string | null>(null);
+  const showDraftFeedback = useCallback(
+    (term: string, variants: string) => {
+      const evaluation = evaluateEntryDraft(term, variants, savedEntryRef.current);
+      if (evaluation.action === "hint") {
+        setRowHint(evaluation.hint);
+        return;
+      }
+      if (evaluation.action === "save" && evaluation.hint) {
+        setRowHint(evaluation.hint);
+        return;
+      }
+      setRowHint(null);
+    },
+    [],
+  );
 
-  const add = async () => {
-    if (!term.trim()) {
-      setValidationError(t("dictionary.termRequired"));
+  const applyEvaluation = useCallback(
+    async (
+      evaluation: EntryDraftEvaluation,
+      options?: { discardBlank?: boolean },
+    ): Promise<DictionaryEntry | null> => {
+      if (evaluation.action === "discard") {
+        setRowHint(null);
+        if (options?.discardBlank) onDiscard();
+        return null;
+      }
+
+      if (evaluation.action === "hint") {
+        setRowHint(evaluation.hint);
+        return null;
+      }
+
+      if (evaluation.action === "noop") {
+        setRowHint(null);
+        return { ...entry, ...savedEntryRef.current };
+      }
+
+      setRowHint(evaluation.hint ?? null);
+      const saved = await onSave(evaluation.term, evaluation.aliases);
+      if (saved) {
+        savedEntryRef.current = { term: saved.term, aliases: saved.aliases };
+      }
+      return saved;
+    },
+    [entry, onDiscard, onSave],
+  );
+
+  const scheduleSave = useCallback(() => {
+    if (debounceRef.current) clearTimeout(debounceRef.current);
+    debounceRef.current = setTimeout(() => {
+      debounceRef.current = null;
+      const draft = draftRef.current;
+      void applyEvaluation(
+        evaluateEntryDraft(draft.term, draft.variants, savedEntryRef.current),
+      );
+    }, SAVE_DEBOUNCE_MS);
+  }, [applyEvaluation]);
+
+  const changeVariants = (value: string) => {
+    draftRef.current = { ...draftRef.current, variants: value };
+    hasUnblurredEditsRef.current.variants = true;
+    showDraftFeedback(draftRef.current.term, value);
+    scheduleSave();
+  };
+
+  const changeTerm = (value: string) => {
+    draftRef.current = { ...draftRef.current, term: value };
+    hasUnblurredEditsRef.current.term = true;
+    showDraftFeedback(value, draftRef.current.variants);
+    scheduleSave();
+  };
+
+  const blurField = async (field: "variants" | "term") => {
+    focusedFieldRef.current = null;
+    if (debounceRef.current) {
+      clearTimeout(debounceRef.current);
+      debounceRef.current = null;
+    }
+
+    const draft = draftRef.current;
+    const evaluation = evaluateEntryDraft(
+      draft.term,
+      draft.variants,
+      savedEntryRef.current,
+    );
+
+    if (evaluation.action === "discard") {
+      hasUnblurredEditsRef.current[field] = false;
+      onDiscard();
       return;
     }
 
-    setValidationError(null);
-    if (await onAdd(term, alias)) {
-      setTerm("");
-      setAlias("");
+    if (field === "variants") {
+      const normalized = formatVariants(parseVariants(draft.variants));
+      draftRef.current = { ...draftRef.current, variants: normalized };
+      if (variantsInputRef.current) variantsInputRef.current.value = normalized;
+    } else {
+      const normalized = draft.term.trim();
+      draftRef.current = { ...draftRef.current, term: normalized };
+      if (termInputRef.current) termInputRef.current.value = normalized;
+    }
+
+    hasUnblurredEditsRef.current[field] = false;
+    const saved = await applyEvaluation(evaluation, { discardBlank: true });
+    if (!saved || focusedFieldRef.current === field || hasUnblurredEditsRef.current[field]) {
+      return;
+    }
+
+    if (field === "variants") {
+      const variants = formatVariants(saved.aliases);
+      draftRef.current.variants = variants;
+      if (variantsInputRef.current) variantsInputRef.current.value = variants;
+    } else {
+      draftRef.current.term = saved.term;
+      if (termInputRef.current) termInputRef.current.value = saved.term;
     }
   };
 
   return (
-    <div className={styles.addForm} role="group" aria-label={t("dictionary.add")}>
-      <h3 className={styles.addTitle}>{t("dictionary.add")}</h3>
-      <label className={styles.field}>
-        <span>{t("dictionary.term")}</span>
+    <div className={styles.row} role="group" aria-label={rowLabel}>
+      <label className={styles.cell}>
+        <span className={styles.srOnly}>{t("dictionary.variants")}</span>
         <input
+          ref={variantsInputRef}
           className={styles.input}
-          value={term}
-          disabled={disabled}
-          onChange={(event) => setTerm(event.target.value)}
+          defaultValue={initialDraftRef.current.variants}
+          placeholder={t("dictionary.variantsPlaceholder")}
+          onInput={(event) => changeVariants(event.currentTarget.value)}
+          onFocus={() => {
+            focusedFieldRef.current = "variants";
+          }}
+          onBlur={() => void blurField("variants")}
         />
       </label>
-      <label className={styles.field}>
-        <span>{t("dictionary.alias")}</span>
+
+      <span className={styles.arrow} aria-hidden="true">
+        →
+      </span>
+
+      <label className={styles.cell}>
+        <span className={styles.srOnly}>{t("dictionary.term")}</span>
         <input
+          ref={termInputRef}
           className={styles.input}
-          value={alias}
-          disabled={disabled}
-          onChange={(event) => setAlias(event.target.value)}
+          defaultValue={initialDraftRef.current.term}
+          placeholder={t("dictionary.termPlaceholder")}
+          onInput={(event) => changeTerm(event.currentTarget.value)}
+          onFocus={() => {
+            focusedFieldRef.current = "term";
+          }}
+          onBlur={() => void blurField("term")}
         />
       </label>
-      {validationError && (
-        <p className={styles.validationError} role="alert">
-          {validationError}
-        </p>
-      )}
+
       <button
         type="button"
-        className={sharedStyles.buttonPrimary}
-        disabled={disabled}
-        onClick={() => void add()}
+        className={sharedStyles.buttonGhost}
+        aria-label={t("dictionary.deleteEntry", { term: rowLabel })}
+        onClick={onDelete}
       >
-        {t("dictionary.add")}
+        {t("dictionary.delete")}
       </button>
+
+      {rowHint && (
+        <p
+          className={rowHint === "termRequired" ? styles.rowError : styles.rowHint}
+          role={rowHint === "termRequired" ? "alert" : "status"}
+        >
+          {t(`dictionary.${rowHint}`)}
+        </p>
+      )}
     </div>
   );
 }
