@@ -29,6 +29,8 @@ once_cell = "1"
 cpal = "0.18"
 whisper-rs = "0.16"
 sherpa-onnx = "1.13"
+regex = "1.13.0"
+unicode-casefold = "0.2.0"
 
 [target.'cfg(target_os = "macos")'.dependencies]
 whisper-rs = { version = "0.16", features = ["metal"] }

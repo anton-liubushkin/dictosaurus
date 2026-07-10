@@ -1,6 +1,7 @@
 mod audio;
 mod commands;
 mod dictation;
+mod dictionary;
 mod hotkey;
 pub mod models;
 mod overlay;
@@ -14,6 +15,7 @@ use tauri::Manager;
 
 pub struct AppState {
     pub settings: Mutex<settings::SettingsStore>,
+    pub dictionary: Mutex<dictionary::DictionaryStore>,
     pub dictation: dictation::Dictation,
 }
 
@@ -65,9 +67,20 @@ pub fn run() {
                 }
             }
             let hotkey_str = store.current().hotkey.clone();
+            let dictionary = app
+                .path()
+                .app_data_dir()
+                .map(dictionary::DictionaryStore::from_app_data_dir)
+                .unwrap_or_else(|error| {
+                    dictionary::DictionaryStore::unavailable(format!("app data directory: {error}"))
+                });
+            if let Some(error) = dictionary.load_error() {
+                log::warn!("[dictionary] failed to load dictionary: {error}");
+            }
 
             app.manage(AppState {
                 settings: Mutex::new(store),
+                dictionary: Mutex::new(dictionary),
                 dictation: dictation::Dictation::default(),
             });
 
@@ -91,6 +104,10 @@ pub fn run() {
             }
         })
         .invoke_handler(tauri::generate_handler![
+            commands::get_dictionary,
+            commands::update_dictionary,
+            commands::reset_dictionary,
+            commands::reload_dictionary,
             commands::get_settings,
             commands::update_settings,
             commands::list_models,

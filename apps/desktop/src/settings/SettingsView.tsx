@@ -19,6 +19,7 @@ import {
   updateSettings,
 } from "../lib/ipc";
 import { UI_LANGUAGE_EVENT, applyUiLanguage } from "../i18n/i18n";
+import DictionarySection from "./DictionarySection";
 import HotkeyRecorder, { formatHotkey } from "./HotkeyRecorder";
 import styles from "./SettingsView.module.css";
 
@@ -208,6 +209,8 @@ export default function SettingsView() {
         </div>
 
       </Section>
+
+      <DictionarySection />
 
       <Section title={t("section.models")}>
         <p className={styles.sectionNote}>{t("models.note")}</p>

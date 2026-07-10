@@ -10,6 +10,7 @@
   "section": {
     "permissions": "Permissions",
     "dictation": "Dictation",
+    "dictionary": "Custom vocabulary",
     "models": "Models",
     "general": "General"
   },
@@ -30,6 +31,33 @@
   },
   "hotkeyRecorder": {
     "capturing": "Press a shortcut, or hold 2+ modifier keys and release… (Esc to cancel)"
+  },
+  "dictionary": {
+    "loading": "Loading custom vocabulary…",
+    "retry": "Retry",
+    "reset": "Reset dictionary",
+    "enabled": "Enable custom vocabulary",
+    "enabledDetail": "Replace spoken aliases with your preferred terms",
+    "empty": "No custom vocabulary entries yet.",
+    "entryEnabled": "Enable {{term}}",
+    "term": "Canonical term",
+    "alias": "Alias",
+    "aliasNumber": "Alias {{number}}",
+    "removeAlias": "Remove alias {{number}} from {{term}}",
+    "addAlias": "Add alias",
+    "save": "Save",
+    "delete": "Delete",
+    "add": "Add entry",
+    "termRequired": "Canonical term is required.",
+    "aliasRequired": "Aliases cannot be blank.",
+    "error": {
+      "corruptJson": "The custom vocabulary file is corrupted.",
+      "unsupportedVersion": "This custom vocabulary version is not supported.",
+      "storage": "The custom vocabulary file could not be accessed.",
+      "validation": "The custom vocabulary contains invalid or conflicting values.",
+      "unavailable": "Custom vocabulary storage is unavailable.",
+      "internal": "An internal custom vocabulary error occurred."
+    }
   },
   "models": {
     "note": "Models run fully on-device. Bigger models are more accurate but slower. GigaAM v3 by Sber is the most accurate option for Russian.",

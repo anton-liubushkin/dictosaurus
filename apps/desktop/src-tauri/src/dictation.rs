@@ -5,7 +5,13 @@
 //!                    focused app (it also stays in the clipboard), hide the
 //!                    overlay.
 
-use crate::{audio, models, overlay, paste, settings::AppSettings, transcribe, AppState};
+use crate::{
+    audio,
+    dictionary::{DictionarySnapshot, DictionaryStore},
+    models, overlay, paste,
+    settings::AppSettings,
+    transcribe, AppState,
+};
 use serde::Serialize;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Mutex;
@@ -46,6 +52,48 @@ struct StatePayload {
 
 const STATE_EVENT: &str = "dictation-state";
 const LEVEL_EVENT: &str = "audio-level";
+const MAX_NATIVE_VOCABULARY_HINT_BYTES: usize = 1024;
+
+fn dictionary_snapshot(dictionary: &Mutex<DictionaryStore>) -> Option<DictionarySnapshot> {
+    match dictionary.lock() {
+        Ok(store) => Some(store.snapshot()),
+        Err(_) => {
+            log::error!(
+                "[dictionary] state lock is poisoned; dictionary disabled for this request"
+            );
+            None
+        }
+    }
+}
+
+fn post_process_transcription(
+    text: &str,
+    dictionary: Option<&DictionarySnapshot>,
+) -> Option<String> {
+    let normalized = text.split_whitespace().collect::<Vec<_>>().join(" ");
+    let corrected = match dictionary {
+        Some(snapshot) => snapshot.apply(&normalized),
+        None => normalized,
+    };
+    (!corrected.is_empty()).then_some(corrected)
+}
+
+fn model_uses_native_vocabulary_hints(model_id: &str) -> bool {
+    models::curated()
+        .iter()
+        .find(|model| model.id == model_id)
+        .is_some_and(|model| model.engine == models::Engine::Whisper)
+}
+
+fn native_vocabulary_hints(model_id: &str, dictionary: Option<&DictionarySnapshot>) -> String {
+    if !model_uses_native_vocabulary_hints(model_id) {
+        return String::new();
+    }
+
+    dictionary
+        .map(|snapshot| snapshot.build_hints(MAX_NATIVE_VOCABULARY_HINT_BYTES))
+        .unwrap_or_default()
+}
 
 fn emit_state(app: &AppHandle, phase: &'static str, text: Option<String>, message: Option<String>) {
     let _ = app.emit(
@@ -122,11 +170,14 @@ pub fn hotkey_released(app: &AppHandle) {
     emit_state(app, "transcribing", None, None);
 
     let settings = state.settings.lock().unwrap().current().clone();
+    let dictionary = dictionary_snapshot(&state.dictionary);
     let app = app.clone();
     tauri::async_runtime::spawn(async move {
-        let outcome = tauri::async_runtime::spawn_blocking(move || run_pipeline(handle, &settings))
-            .await
-            .unwrap_or_else(|e| Err(format!("transcription task failed: {e}")));
+        let outcome = tauri::async_runtime::spawn_blocking(move || {
+            run_pipeline(handle, &settings, dictionary)
+        })
+        .await
+        .unwrap_or_else(|e| Err(format!("transcription task failed: {e}")));
 
         match outcome {
             Ok(Some(text)) => {
@@ -160,6 +211,7 @@ pub fn hotkey_released(app: &AppHandle) {
 fn run_pipeline(
     handle: audio::RecorderHandle,
     settings: &AppSettings,
+    dictionary: Option<DictionarySnapshot>,
 ) -> Result<Option<String>, String> {
     let recorded = handle.stop()?;
     log::info!(
@@ -174,9 +226,14 @@ fn run_pipeline(
     }
 
     let pcm = audio::resample(&recorded.samples, recorded.sample_rate, 16_000);
-    let text = transcribe::transcribe(&settings.model_id, &settings.language, &pcm)?;
-    let text = text.split_whitespace().collect::<Vec<_>>().join(" ");
-    Ok((!text.is_empty()).then_some(text))
+    let vocabulary_hints = native_vocabulary_hints(&settings.model_id, dictionary.as_ref());
+    let text = transcribe::transcribe(transcribe::TranscriptionRequest {
+        model_id: &settings.model_id,
+        language: &settings.language,
+        pcm: &pcm,
+        vocabulary_hints: &vocabulary_hints,
+    })?;
+    Ok(post_process_transcription(&text, dictionary.as_ref()))
 }
 
 fn spawn_level_task(app: AppHandle) {
@@ -240,5 +297,143 @@ async fn hide_overlay_after(app: AppHandle, delay_ms: u64, generation: u64) {
         overlay::hide(&app);
     } else {
         log::debug!("[dictation] skipping stale overlay hide (a new session took over)");
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::dictionary::{
+        DictionaryDocument, DictionaryEntry, DictionarySnapshot, DictionaryStore,
+        DICTIONARY_VERSION,
+    };
+    use std::path::PathBuf;
+    use std::sync::Arc;
+
+    fn snapshot(enabled: bool, entries: Vec<DictionaryEntry>) -> DictionarySnapshot {
+        DictionarySnapshot::compile(&DictionaryDocument {
+            version: DICTIONARY_VERSION,
+            enabled,
+            entries,
+        })
+        .unwrap()
+    }
+
+    fn alias_entry() -> DictionaryEntry {
+        DictionaryEntry {
+            id: "rust".into(),
+            term: "Rust".into(),
+            aliases: vec!["rust lang".into()],
+            enabled: true,
+        }
+    }
+
+    #[test]
+    fn empty_and_disabled_dictionary_leave_normalized_text_unchanged() {
+        let empty = snapshot(true, Vec::new());
+        let disabled = snapshot(false, vec![alias_entry()]);
+
+        assert_eq!(
+            post_process_transcription("  rust   lang  ", Some(&empty)),
+            Some("rust lang".into())
+        );
+        assert_eq!(
+            post_process_transcription("  rust   lang  ", Some(&disabled)),
+            Some("rust lang".into())
+        );
+    }
+
+    #[test]
+    fn enabled_alias_corrects_returned_text_after_whitespace_normalization() {
+        let dictionary = snapshot(true, vec![alias_entry()]);
+
+        assert_eq!(
+            post_process_transcription("  hello \n rust   lang  ", Some(&dictionary)),
+            Some("hello Rust".into())
+        );
+    }
+
+    #[test]
+    fn native_hints_are_bounded_and_come_from_the_dictation_snapshot() {
+        let dictionary = snapshot(true, vec![alias_entry()]);
+
+        let hints = native_vocabulary_hints("tiny", Some(&dictionary));
+
+        assert_eq!(hints, "Rust, rust lang");
+        assert!(hints.len() <= MAX_NATIVE_VOCABULARY_HINT_BYTES);
+        assert_eq!(dictionary.apply("rust lang"), "Rust");
+    }
+
+    #[test]
+    fn whisper_request_hints_respect_the_1024_byte_bound() {
+        let entries = (0..200)
+            .map(|index| DictionaryEntry {
+                id: index.to_string(),
+                term: format!("Term{index:03}"),
+                aliases: Vec::new(),
+                enabled: true,
+            })
+            .collect();
+        let dictionary = snapshot(true, entries);
+
+        let hints = native_vocabulary_hints("tiny", Some(&dictionary));
+
+        assert!(hints.len() > 900);
+        assert!(hints.len() <= 1024);
+    }
+
+    #[test]
+    fn disabled_or_missing_dictionary_has_no_native_hints() {
+        let disabled = snapshot(false, vec![alias_entry()]);
+
+        assert_eq!(native_vocabulary_hints("tiny", Some(&disabled)), "");
+        assert_eq!(native_vocabulary_hints("tiny", None), "");
+    }
+
+    #[test]
+    fn sherpa_models_do_not_receive_native_hints() {
+        let dictionary = snapshot(true, vec![alias_entry()]);
+
+        assert_eq!(
+            native_vocabulary_hints("parakeet-tdt-0.6b-v3", Some(&dictionary)),
+            ""
+        );
+        assert_eq!(
+            native_vocabulary_hints("gigaam-v3-e2e-ctc", Some(&dictionary)),
+            ""
+        );
+    }
+
+    #[test]
+    fn empty_transcription_returns_nothing_after_post_processing() {
+        let dictionary = snapshot(true, vec![alias_entry()]);
+
+        assert_eq!(
+            post_process_transcription(" \n\t ", Some(&dictionary)),
+            None
+        );
+    }
+
+    #[test]
+    fn poisoned_dictionary_lock_fails_closed() {
+        let path = PathBuf::from(format!(
+            "unused-dictionary-{}-poison.json",
+            std::process::id()
+        ));
+        let dictionary = Arc::new(Mutex::new(DictionaryStore::from_path(path)));
+        let poisoned = Arc::clone(&dictionary);
+        let _ = std::thread::spawn(move || {
+            let _guard = poisoned.lock().unwrap();
+            panic!("poison dictionary lock");
+        })
+        .join();
+
+        let snapshot = dictionary_snapshot(&dictionary);
+
+        assert!(snapshot.is_none());
+        assert_eq!(
+            post_process_transcription("  rust   lang  ", snapshot.as_ref()),
+            Some("rust lang".into())
+        );
     }
 }
