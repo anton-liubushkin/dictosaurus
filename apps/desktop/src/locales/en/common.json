@@ -1,18 +1,13 @@
 {
-  "app": {
-    "name": "Dictosaurus",
-    "tagline": "Local AI dictation — your voice never leaves this Mac"
-  },
-  "hint": {
-    "beforeKey": "Hold",
-    "afterKey": ", speak, release — the text is inserted into the active input and copied to the clipboard."
-  },
   "section": {
-    "permissions": "Permissions",
-    "dictation": "Dictation",
-    "dictionary": "Custom vocabulary",
-    "models": "Models",
-    "general": "General"
+    "dictionary": "Custom vocabulary"
+  },
+  "nav": {
+    "general": "General",
+    "model": "Model",
+    "hotkey": "Hotkey",
+    "vocabulary": "Vocabulary",
+    "permissions": "Permissions"
   },
   "permissions": {
     "microphone": "Microphone",

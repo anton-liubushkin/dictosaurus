@@ -1,0 +1,310 @@
+.shell {
+  display: flex;
+  height: 100%;
+  background: var(--bg);
+}
+
+.sidebar {
+  width: 200px;
+  flex-shrink: 0;
+  padding: 16px 10px;
+  background: var(--bg-sidebar);
+  border-right: 1px solid var(--separator);
+}
+
+.navButton {
+  display: flex;
+  width: 100%;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 10px;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--text);
+  font-size: 13px;
+  text-align: left;
+  cursor: default;
+}
+
+.navButton:hover {
+  background: var(--bg-row-hover);
+}
+
+.navButtonActive,
+.navButtonActive:hover {
+  background: var(--accent);
+  color: #fff;
+}
+
+.content {
+  flex: 1;
+  overflow: auto;
+  padding: 28px 32px 48px;
+}
+
+.paneTitle {
+  margin: 0 0 16px;
+  font-size: 22px;
+  font-weight: 700;
+  letter-spacing: -0.02em;
+}
+
+.paneNote {
+  margin: -4px 0 16px;
+  font-size: 12.5px;
+  line-height: 1.5;
+  color: var(--text-secondary);
+}
+
+.group {
+  background: var(--bg-grouped);
+  border-radius: 10px;
+  overflow: hidden;
+  box-shadow: 0 0 0 1px var(--separator);
+}
+
+.group + .group {
+  margin-top: 20px;
+}
+
+.row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 11px 14px;
+  min-height: 44px;
+}
+
+.row + .row {
+  border-top: 1px solid var(--separator);
+}
+
+.rowLabel {
+  font-size: 13px;
+  font-weight: 500;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.rowDetail {
+  margin-top: 2px;
+  font-size: 12px;
+  color: var(--text-secondary);
+}
+
+.rowError {
+  padding: 0 14px 12px;
+  font-size: 12px;
+  color: var(--danger);
+}
+
+.buttonPrimary {
+  border: 0;
+  border-radius: 6px;
+  padding: 6px 12px;
+  background: var(--accent);
+  color: #fff;
+  font-size: 13px;
+  font-weight: 500;
+  cursor: default;
+}
+
+.buttonPrimary:hover {
+  background: var(--accent-hover);
+}
+
+.buttonSecondary {
+  border: 0;
+  border-radius: 6px;
+  padding: 6px 12px;
+  background: var(--control-fill);
+  color: var(--text);
+  font-size: 13px;
+  cursor: default;
+}
+
+.buttonGhost {
+  border: 0;
+  background: transparent;
+  color: var(--text-secondary);
+  font-size: 13px;
+  cursor: default;
+}
+
+.buttonGhost:hover {
+  color: var(--danger);
+}
+
+.select {
+  padding: 5px 10px;
+  border-radius: 6px;
+  border: 1px solid var(--separator);
+  background: var(--control-fill);
+  color: var(--text);
+  font-size: 13px;
+  cursor: default;
+}
+
+.hotkeyButton {
+  min-width: 220px;
+  padding: 6px 12px;
+  border-radius: 6px;
+  border: 1px solid var(--separator);
+  background: var(--control-fill);
+  color: var(--text);
+  font-size: 13px;
+  font-weight: 500;
+  cursor: default;
+}
+
+.hotkeyButton:hover {
+  border-color: var(--accent);
+}
+
+.hotkeyCapturing {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px rgba(10, 132, 255, 0.2);
+  color: var(--text-secondary);
+  font-weight: 400;
+}
+
+/* 40×22 track, white knob — AppKit-like; uses --accent when on */
+.toggle {
+  position: relative;
+  width: 40px;
+  height: 22px;
+  border-radius: 11px;
+  border: none;
+  background: var(--control-fill);
+  cursor: default;
+  transition: background 0.18s;
+  padding: 0;
+  flex-shrink: 0;
+}
+
+.toggleOn {
+  background: var(--accent);
+}
+
+.toggleKnob {
+  position: absolute;
+  top: 2px;
+  left: 2px;
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  background: #fff;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.3);
+  transition: transform 0.18s ease;
+}
+
+.toggleOn .toggleKnob {
+  transform: translateX(18px);
+}
+
+.toggle:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
+
+.statusDot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--text-secondary);
+  flex-shrink: 0;
+}
+
+.statusOk {
+  background: var(--ok);
+}
+
+.statusBad {
+  background: var(--danger);
+}
+
+.grantedText {
+  font-size: 12.5px;
+  color: var(--ok);
+}
+
+.modelMain {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex: 1;
+  min-width: 0;
+  cursor: default;
+}
+
+.radio {
+  accent-color: var(--accent);
+  width: 16px;
+  height: 16px;
+  flex-shrink: 0;
+}
+
+.radio:disabled {
+  opacity: 0.3;
+}
+
+.modelSize {
+  font-size: 12px;
+  font-weight: 400;
+  color: var(--text-secondary);
+  white-space: nowrap;
+}
+
+.badge {
+  display: inline-block;
+  margin-left: 4px;
+  padding: 1px 7px;
+  border-radius: 999px;
+  font-size: 10.5px;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  vertical-align: 1px;
+  color: var(--text-secondary);
+  background: var(--control-fill);
+}
+
+.badgeRu {
+  color: #4ea9ff;
+  background: rgba(78, 169, 255, 0.14);
+}
+
+.modelActions {
+  flex-shrink: 0;
+}
+
+.progressWrap {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.progressTrack {
+  width: 120px;
+  height: 6px;
+  border-radius: 3px;
+  background: var(--control-fill);
+  overflow: hidden;
+}
+
+.progressFill {
+  height: 100%;
+  border-radius: 3px;
+  background: var(--accent);
+  transition: width 0.2s ease;
+}
+
+.progressText {
+  font-size: 12px;
+  color: var(--text-secondary);
+  min-width: 34px;
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}

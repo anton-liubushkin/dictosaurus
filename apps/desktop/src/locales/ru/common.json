@@ -1,18 +1,13 @@
 {
-  "app": {
-    "name": "Dictosaurus",
-    "tagline": "Локальная AI-диктовка — ваш голос не покидает этот Mac"
-  },
-  "hint": {
-    "beforeKey": "Удерживайте",
-    "afterKey": ", говорите, отпустите — текст вставится в активное поле и скопируется в буфер обмена."
-  },
   "section": {
-    "permissions": "Разрешения",
-    "dictation": "Диктовка",
-    "dictionary": "Пользовательский словарь",
-    "models": "Модели",
-    "general": "Общие"
+    "dictionary": "Пользовательский словарь"
+  },
+  "nav": {
+    "general": "Основные",
+    "model": "Модель",
+    "hotkey": "Хоткей",
+    "vocabulary": "Словарь",
+    "permissions": "Разрешения"
   },
   "permissions": {
     "microphone": "Микрофон",

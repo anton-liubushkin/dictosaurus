@@ -21,7 +21,8 @@ import {
 import { UI_LANGUAGE_EVENT, applyUiLanguage } from "../i18n/i18n";
 import DictionarySection from "./DictionarySection";
 import HotkeyRecorder, { formatHotkey } from "./HotkeyRecorder";
-import styles from "./SettingsView.module.css";
+import SettingsShell, { type SettingsSection } from "./SettingsShell";
+import chrome from "./settingsChrome.module.css";
 
 const SPEECH_LANGUAGES: [string, string][] = [
   ["en", "English"],
@@ -45,6 +46,7 @@ type Progress = Record<string, DownloadProgress>;
 
 export default function SettingsView() {
   const { t } = useTranslation("common");
+  const [section, setSection] = useState<SettingsSection>("general");
   const [settings, setSettings] = useState<AppSettings | null>(null);
   const [models, setModels] = useState<ModelInfo[]>([]);
   const [progress, setProgress] = useState<Progress>({});
@@ -144,60 +146,99 @@ export default function SettingsView() {
   }, [autostart]);
 
   if (!settings) {
-    return <div className={styles.page} />;
+    return <div className={chrome.shell} />;
   }
 
   return (
-    <div className={styles.page}>
-      <header className={styles.header}>
-        <div className={styles.logoDot} />
-        <div>
-          <h1 className={styles.title}>{t("app.name")}</h1>
-          <p className={styles.subtitle}>{t("app.tagline")}</p>
-        </div>
-      </header>
-
-      <section className={styles.hint}>
-        {t("hint.beforeKey")} <kbd className={styles.kbd}>{formatHotkey(settings.hotkey)}</kbd>
-        {t("hint.afterKey")}
-      </section>
-
-      {isMac && (
-        <Section title={t("section.permissions")}>
-          <PermissionRow
-            name={t("permissions.microphone")}
-            detail={t("permissions.microphoneDetail")}
-            granted={micGranted}
-            onRequest={() => requestMicrophonePermission().then(refreshPermissions)}
-          />
-          <PermissionRow
-            name={t("permissions.accessibility")}
-            detail={t("permissions.accessibilityDetail")}
-            granted={axGranted}
-            onRequest={() => requestAccessibilityPermission().then(refreshPermissions)}
-          />
-        </Section>
+    <SettingsShell section={section} onSectionChange={setSection}>
+      {section === "general" && (
+        <GeneralPane
+          settings={settings}
+          autostart={autostart}
+          onUiLanguageChange={changeUiLanguage}
+          onLanguageChange={(language) => save({ language })}
+          onToggleAutostart={toggleAutostart}
+        />
       )}
 
-      <Section title={t("section.dictation")}>
-        <div className={styles.row}>
-          <div>
-            <div className={styles.rowLabel}>{t("dictation.hotkey")}</div>
-            <div className={styles.rowDetail}>{t("dictation.hotkeyDetail")}</div>
-          </div>
-          <HotkeyRecorder value={settings.hotkey} onChange={(hotkey) => save({ hotkey })} />
-        </div>
-        {hotkeyError && <div className={styles.error}>{hotkeyError}</div>}
+      {section === "model" && (
+        <ModelPane
+          models={models}
+          activeModelId={settings.modelId}
+          progress={progress}
+          onSelect={(modelId) => save({ modelId })}
+          onDownload={startDownload}
+          onDelete={(modelId) => deleteModel(modelId).then(refreshModels).catch(console.error)}
+        />
+      )}
 
-        <div className={styles.row}>
+      {section === "hotkey" && (
+        <HotkeyPane
+          hotkey={settings.hotkey}
+          error={hotkeyError}
+          onChange={(hotkey) => save({ hotkey })}
+        />
+      )}
+
+      {section === "vocabulary" && <DictionarySection />}
+
+      {section === "permissions" && isMac && (
+        <PermissionsPane
+          micGranted={micGranted}
+          axGranted={axGranted}
+          onRequestMic={() => requestMicrophonePermission().then(refreshPermissions)}
+          onRequestAx={() => requestAccessibilityPermission().then(refreshPermissions)}
+        />
+      )}
+    </SettingsShell>
+  );
+}
+
+function GeneralPane({
+  settings,
+  autostart,
+  onUiLanguageChange,
+  onLanguageChange,
+  onToggleAutostart,
+}: {
+  settings: AppSettings;
+  autostart: boolean | null;
+  onUiLanguageChange: (uiLanguage: string) => void;
+  onLanguageChange: (language: string) => void;
+  onToggleAutostart: () => void;
+}) {
+  const { t } = useTranslation("common");
+  return (
+    <>
+      <h1 className={chrome.paneTitle}>{t("nav.general")}</h1>
+      <div className={chrome.group}>
+        <div className={chrome.row}>
           <div>
-            <div className={styles.rowLabel}>{t("dictation.language")}</div>
-            <div className={styles.rowDetail}>{t("dictation.languageDetail")}</div>
+            <div className={chrome.rowLabel}>{t("general.interfaceLanguage")}</div>
+            <div className={chrome.rowDetail}>{t("general.interfaceLanguageDetail")}</div>
           </div>
           <select
-            className={styles.select}
+            className={chrome.select}
+            value={settings.uiLanguage}
+            onChange={(e) => onUiLanguageChange(e.target.value)}
+          >
+            {UI_LANGUAGES.map((code) => (
+              <option key={code} value={code}>
+                {t(`general.interfaceLanguageOption.${code}`)}
+              </option>
+            ))}
+          </select>
+        </div>
+
+        <div className={chrome.row}>
+          <div>
+            <div className={chrome.rowLabel}>{t("dictation.language")}</div>
+            <div className={chrome.rowDetail}>{t("dictation.languageDetail")}</div>
+          </div>
+          <select
+            className={chrome.select}
             value={settings.language}
-            onChange={(e) => save({ language: e.target.value })}
+            onChange={(e) => onLanguageChange(e.target.value)}
           >
             <option value="auto">{t("dictation.languageAuto")}</option>
             {SPEECH_LANGUAGES.map(([code, label]) => (
@@ -208,70 +249,120 @@ export default function SettingsView() {
           </select>
         </div>
 
-      </Section>
-
-      <DictionarySection />
-
-      <Section title={t("section.models")}>
-        <p className={styles.sectionNote}>{t("models.note")}</p>
-        {models.map((model) => (
-          <ModelRow
-            key={model.id}
-            model={model}
-            active={settings.modelId === model.id}
-            progress={progress[model.id]}
-            onSelect={() => save({ modelId: model.id })}
-            onDownload={() => startDownload(model.id)}
-            onDelete={() => deleteModel(model.id).then(refreshModels).catch(console.error)}
-          />
-        ))}
-      </Section>
-
-      <Section title={t("section.general")}>
-        <div className={styles.row}>
+        <div className={chrome.row}>
           <div>
-            <div className={styles.rowLabel}>{t("general.interfaceLanguage")}</div>
-            <div className={styles.rowDetail}>{t("general.interfaceLanguageDetail")}</div>
-          </div>
-          <select
-            className={styles.select}
-            value={settings.uiLanguage}
-            onChange={(e) => changeUiLanguage(e.target.value)}
-          >
-            {UI_LANGUAGES.map((code) => (
-              <option key={code} value={code}>
-                {t(`general.interfaceLanguageOption.${code}`)}
-              </option>
-            ))}
-          </select>
-        </div>
-
-        <div className={styles.row}>
-          <div>
-            <div className={styles.rowLabel}>{t("general.autostart")}</div>
-            <div className={styles.rowDetail}>{t("general.autostartDetail")}</div>
+            <div className={chrome.rowLabel}>{t("general.autostart")}</div>
+            <div className={chrome.rowDetail}>{t("general.autostartDetail")}</div>
           </div>
           <button
             type="button"
             role="switch"
             aria-checked={!!autostart}
-            className={`${styles.toggle} ${autostart ? styles.toggleOn : ""}`}
-            onClick={toggleAutostart}
+            className={`${chrome.toggle} ${autostart ? chrome.toggleOn : ""}`}
+            onClick={onToggleAutostart}
           >
-            <span className={styles.toggleKnob} />
+            <span className={chrome.toggleKnob} />
           </button>
         </div>
-      </Section>
-    </div>
+      </div>
+    </>
   );
 }
 
-function Section({ title, children }: { title: string; children: React.ReactNode }) {
+function HotkeyPane({
+  hotkey,
+  error,
+  onChange,
+}: {
+  hotkey: string;
+  error: string | null;
+  onChange: (hotkey: string) => void;
+}) {
+  const { t } = useTranslation("common");
   return (
-    <section className={styles.section}>
-      <h2 className={styles.sectionTitle}>{title}</h2>
-      <div className={styles.card}>{children}</div>
-    </section>
+    <>
+      <h1 className={chrome.paneTitle}>{t("nav.hotkey")}</h1>
+      <div className={chrome.group}>
+        <div className={chrome.row}>
+          <div>
+            <div className={chrome.rowLabel}>{t("dictation.hotkey")}</div>
+            <div className={chrome.rowDetail}>{t("dictation.hotkeyDetail")}</div>
+          </div>
+          <HotkeyRecorder value={hotkey} onChange={onChange} />
+        </div>
+        {error && <div className={chrome.rowError}>{error}</div>}
+      </div>
+    </>
+  );
+}
+
+function ModelPane({
+  models,
+  activeModelId,
+  progress,
+  onSelect,
+  onDownload,
+  onDelete,
+}: {
+  models: ModelInfo[];
+  activeModelId: string;
+  progress: Progress;
+  onSelect: (modelId: string) => void;
+  onDownload: (modelId: string) => void;
+  onDelete: (modelId: string) => void;
+}) {
+  const { t } = useTranslation("common");
+  return (
+    <>
+      <h1 className={chrome.paneTitle}>{t("nav.model")}</h1>
+      <p className={chrome.paneNote}>{t("models.note")}</p>
+      <div className={chrome.group}>
+        {models.map((model) => (
+          <ModelRow
+            key={model.id}
+            model={model}
+            active={activeModelId === model.id}
+            progress={progress[model.id]}
+            onSelect={() => onSelect(model.id)}
+            onDownload={() => onDownload(model.id)}
+            onDelete={() => onDelete(model.id)}
+          />
+        ))}
+      </div>
+    </>
+  );
+}
+
+function PermissionsPane({
+  micGranted,
+  axGranted,
+  onRequestMic,
+  onRequestAx,
+}: {
+  micGranted: boolean | null;
+  axGranted: boolean | null;
+  onRequestMic: () => void;
+  onRequestAx: () => void;
+}) {
+  const { t } = useTranslation("common");
+  return (
+    <>
+      <h1 className={chrome.paneTitle}>{t("nav.permissions")}</h1>
+      <div className={chrome.group}>
+        <PermissionRow
+          name={t("permissions.microphone")}
+          detail={t("permissions.microphoneDetail")}
+          granted={micGranted}
+          onRequest={onRequestMic}
+        />
+        <PermissionRow
+          name={t("permissions.accessibility")}
+          detail={t("permissions.accessibilityDetail")}
+          granted={axGranted}
+          onRequest={onRequestAx}
+        />
+      </div>
+    </>
   );
 }
 
@@ -288,24 +379,24 @@ function PermissionRow({
 }) {
   const { t } = useTranslation("common");
   return (
-    <div className={styles.row}>
+    <div className={chrome.row}>
       <div>
-        <div className={styles.rowLabel}>
+        <div className={chrome.rowLabel}>
           <span
-            className={`${styles.statusDot} ${
-              granted === null ? "" : granted ? styles.statusOk : styles.statusBad
+            className={`${chrome.statusDot} ${
+              granted === null ? "" : granted ? chrome.statusOk : chrome.statusBad
             }`}
           />
           {name}
         </div>
-        <div className={styles.rowDetail}>{detail}</div>
+        <div className={chrome.rowDetail}>{detail}</div>
       </div>
       {granted === false && (
-        <button type="button" className={styles.buttonSecondary} onClick={onRequest}>
+        <button type="button" className={chrome.buttonSecondary} onClick={onRequest}>
           {t("permissions.grant")}
         </button>
       )}
-      {granted === true && <span className={styles.grantedText}>{t("permissions.granted")}</span>}
+      {granted === true && <span className={chrome.grantedText}>{t("permissions.granted")}</span>}
     </div>
   );
 }
@@ -338,48 +429,48 @@ function ModelRow({
   });
 
   return (
-    <div className={`${styles.modelRow} ${active ? styles.modelActive : ""}`}>
-      <label className={styles.modelMain}>
+    <div className={chrome.row}>
+      <label className={chrome.modelMain}>
         <input
           type="radio"
           name="model"
           checked={active}
           disabled={!model.downloaded}
           onChange={onSelect}
-          className={styles.radio}
+          className={chrome.radio}
         />
         <div>
-          <div className={styles.rowLabel}>
-            {model.label} <span className={styles.modelSize}>{model.sizeLabel}</span>{" "}
+          <div className={chrome.rowLabel}>
+            {model.label} <span className={chrome.modelSize}>{model.sizeLabel}</span>{" "}
             <span
-              className={`${styles.badge} ${
-                model.languages === "multilingual" ? "" : styles.badgeRu
+              className={`${chrome.badge} ${
+                model.languages === "multilingual" ? "" : chrome.badgeRu
               }`}
             >
               {languageBadge}
             </span>
           </div>
-          <div className={styles.rowDetail}>{description}</div>
-          {progress?.error && <div className={styles.error}>{progress.error}</div>}
+          <div className={chrome.rowDetail}>{description}</div>
+          {progress?.error && <div className={chrome.rowError}>{progress.error}</div>}
         </div>
       </label>
 
-      <div className={styles.modelActions}>
+      <div className={chrome.modelActions}>
         {downloading ? (
-          <div className={styles.progressWrap}>
-            <div className={styles.progressTrack}>
-              <div className={styles.progressFill} style={{ width: `${progress.percent}%` }} />
+          <div className={chrome.progressWrap}>
+            <div className={chrome.progressTrack}>
+              <div className={chrome.progressFill} style={{ width: `${progress.percent}%` }} />
             </div>
-            <span className={styles.progressText}>{progress.percent}%</span>
+            <span className={chrome.progressText}>{progress.percent}%</span>
           </div>
         ) : model.downloaded ? (
           !active && (
-            <button type="button" className={styles.buttonGhost} onClick={onDelete}>
+            <button type="button" className={chrome.buttonGhost} onClick={onDelete}>
               {t("models.delete")}
             </button>
           )
         ) : (
-          <button type="button" className={styles.buttonPrimary} onClick={onDownload}>
+          <button type="button" className={chrome.buttonPrimary} onClick={onDownload}>
             {t("models.download")}
           </button>
         )}
