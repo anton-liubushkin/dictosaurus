@@ -20,7 +20,7 @@ import {
 } from "../lib/ipc";
 import { UI_LANGUAGE_EVENT, applyUiLanguage } from "../i18n/i18n";
 import DictionarySection from "./DictionarySection";
-import HotkeyRecorder, { formatHotkey } from "./HotkeyRecorder";
+import HotkeyRecorder from "./HotkeyRecorder";
 import OnboardingView from "./OnboardingView";
 import SettingsShell, { type SettingsSection } from "./SettingsShell";
 import chrome from "./settingsChrome.module.css";
