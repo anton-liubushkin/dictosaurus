@@ -11,7 +11,7 @@ use crate::models::{self, Engine, ModelDef};
 use once_cell::sync::Lazy;
 use sherpa_onnx::{
     OfflineNemoEncDecCtcModelConfig, OfflineRecognizer, OfflineRecognizerConfig,
-    OfflineTransducerModelConfig,
+    OfflineTransducerModelConfig, SileroVadModelConfig, VadModelConfig, VoiceActivityDetector,
 };
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
@@ -27,7 +27,11 @@ enum Loaded {
 
 type CacheSlot = Option<(PathBuf, Arc<Loaded>)>;
 
+/// Authoritative model used for the final transcription on release.
 static CACHE: Lazy<Mutex<CacheSlot>> = Lazy::new(|| Mutex::new(None));
+/// Separate slot for the lightweight live-preview model, so previewing with a
+/// light model never evicts the (possibly heavy) final model from `CACHE`.
+static PREVIEW_CACHE: Lazy<Mutex<CacheSlot>> = Lazy::new(|| Mutex::new(None));
 
 const SAMPLE_RATE: usize = 16_000;
 /// whisper.cpp rejects clips shorter than ~1 s; pad with silence.
@@ -70,10 +74,16 @@ fn preload(model_id: &str) -> Result<bool, String> {
     Ok(true)
 }
 
-/// Loads (or reuses) the cached model.
-fn loaded(def: &ModelDef, paths: &[PathBuf]) -> Result<Arc<Loaded>, String> {
+/// Loads (or reuses) a model in the given cache slot. Each slot keeps a single
+/// model resident to cap peak RAM; loading a different model frees the previous
+/// one first.
+fn loaded_into(
+    slot: &Mutex<CacheSlot>,
+    def: &ModelDef,
+    paths: &[PathBuf],
+) -> Result<Arc<Loaded>, String> {
     let key = &paths[0];
-    let mut guard = CACHE.lock().unwrap();
+    let mut guard = slot.lock().unwrap();
     if let Some((p, loaded)) = &*guard {
         if p == key {
             return Ok(loaded.clone());
@@ -90,10 +100,20 @@ fn loaded(def: &ModelDef, paths: &[PathBuf]) -> Result<Arc<Loaded>, String> {
     Ok(loaded)
 }
 
+fn loaded(def: &ModelDef, paths: &[PathBuf]) -> Result<Arc<Loaded>, String> {
+    loaded_into(&CACHE, def, paths)
+}
+
 fn loaded_by_id(model_id: &str) -> Result<Arc<Loaded>, String> {
     let def = models::def_by_id(model_id).ok_or_else(|| format!("unknown model id: {model_id}"))?;
     let paths = models::resolve_paths(&def).ok_or_else(|| "model files are missing".to_string())?;
     loaded(&def, &paths)
+}
+
+fn loaded_preview_by_id(model_id: &str) -> Result<Arc<Loaded>, String> {
+    let def = models::def_by_id(model_id).ok_or_else(|| format!("unknown model id: {model_id}"))?;
+    let paths = models::resolve_paths(&def).ok_or_else(|| "model files are missing".to_string())?;
+    loaded_into(&PREVIEW_CACHE, &def, &paths)
 }
 
 /// Transcribes 16 kHz mono f32 PCM. `language` is a whisper language code or
@@ -106,6 +126,44 @@ pub(crate) fn transcribe(request: TranscriptionRequest<'_>) -> Result<String, St
         }
         Loaded::Sherpa(recognizer) => run_sherpa(recognizer, request.pcm),
     }
+}
+
+/// Live-preview transcription: runs the (typically lighter) preview model from
+/// its own cache slot, without vocabulary hints. Used to re-decode the growing
+/// clip while the user is still speaking; the final transcription on release
+/// remains authoritative.
+pub(crate) fn transcribe_preview(
+    model_id: &str,
+    language: &str,
+    pcm: &[f32],
+) -> Result<String, String> {
+    let loaded = loaded_preview_by_id(model_id)?;
+    match &*loaded {
+        Loaded::Whisper(ctx) => run_whisper(ctx, language, pcm, ""),
+        Loaded::Sherpa(recognizer) => run_sherpa(recognizer, pcm),
+    }
+}
+
+/// Builds a Silero VAD detector for live-preview segmentation, or `None` if the
+/// VAD model has not been downloaded yet (the caller falls back to a plain
+/// timer window). Expects 16 kHz mono input. `max_speech_duration` acts as the
+/// timer fallback that force-cuts speech that never pauses.
+pub(crate) fn create_vad() -> Option<VoiceActivityDetector> {
+    let model = models::vad_model_path()?;
+    let config = VadModelConfig {
+        silero_vad: SileroVadModelConfig {
+            model: Some(model.to_string_lossy().into_owned()),
+            threshold: 0.5,
+            min_silence_duration: 0.5,
+            min_speech_duration: 0.2,
+            window_size: 512,
+            max_speech_duration: 15.0,
+        },
+        sample_rate: SAMPLE_RATE as i32,
+        num_threads: 1,
+        ..Default::default()
+    };
+    VoiceActivityDetector::create(&config, 30.0)
 }
 
 // --- Whisper (whisper.cpp) ---

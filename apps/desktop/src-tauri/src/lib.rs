@@ -92,6 +92,7 @@ pub fn run() {
             }
 
             transcribe::preload_in_background(app.handle());
+            models::prefetch_vad_model_in_background();
             Ok(())
         })
         .on_window_event(|window, event| {

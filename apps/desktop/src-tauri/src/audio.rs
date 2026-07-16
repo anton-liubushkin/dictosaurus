@@ -18,12 +18,40 @@ pub struct RecorderHandle {
     stop_tx: mpsc::Sender<()>,
     join: Option<std::thread::JoinHandle<Result<RecordedAudio, String>>>,
     level: Arc<AtomicU32>,
+    /// Shared with the capture thread so callers can read the audio captured so
+    /// far (for the live preview) without stopping the recording.
+    buffer: Arc<Mutex<Vec<f32>>>,
+    sample_rate: u32,
 }
 
 impl RecorderHandle {
     /// Latest RMS level of the incoming audio, roughly 0.0..1.0.
     pub fn level(&self) -> f32 {
         f32::from_bits(self.level.load(Ordering::Relaxed))
+    }
+
+    /// Native capture sample rate (mono).
+    pub fn sample_rate(&self) -> u32 {
+        self.sample_rate
+    }
+
+    /// Copy samples starting at `already_seen` (native mono). Holds the capture
+    /// lock only for the duration of that short copy, so the realtime callback
+    /// is not blocked on cloning the whole recording.
+    pub fn copy_from(&self, already_seen: usize) -> Vec<f32> {
+        let guard = self.buffer.lock().unwrap();
+        if already_seen >= guard.len() {
+            Vec::new()
+        } else {
+            guard[already_seen..].to_vec()
+        }
+    }
+
+    /// Copy of the most recent `max_samples` (or the whole buffer if shorter).
+    pub fn snapshot_tail(&self, max_samples: usize) -> Vec<f32> {
+        let guard = self.buffer.lock().unwrap();
+        let start = guard.len().saturating_sub(max_samples);
+        guard[start..].to_vec()
     }
 
     /// Stops capture and returns the recorded audio. Blocks until the audio
@@ -40,20 +68,24 @@ impl RecorderHandle {
 
 pub fn start_recording() -> Result<RecorderHandle, String> {
     let (stop_tx, stop_rx) = mpsc::channel::<()>();
-    let (ready_tx, ready_rx) = mpsc::channel::<Result<(), String>>();
+    let (ready_tx, ready_rx) = mpsc::channel::<Result<u32, String>>();
     let level = Arc::new(AtomicU32::new(0));
+    let buffer: Arc<Mutex<Vec<f32>>> = Arc::new(Mutex::new(Vec::new()));
     let thread_level = level.clone();
+    let thread_buffer = buffer.clone();
 
     let join = std::thread::Builder::new()
         .name("audio-capture".into())
-        .spawn(move || capture_thread(stop_rx, ready_tx, thread_level))
+        .spawn(move || capture_thread(thread_buffer, stop_rx, ready_tx, thread_level))
         .map_err(|e| format!("spawn audio thread: {e}"))?;
 
     match ready_rx.recv() {
-        Ok(Ok(())) => Ok(RecorderHandle {
+        Ok(Ok(sample_rate)) => Ok(RecorderHandle {
             stop_tx,
             join: Some(join),
             level,
+            buffer,
+            sample_rate,
         }),
         Ok(Err(e)) => {
             let _ = join.join();
@@ -67,12 +99,11 @@ pub fn start_recording() -> Result<RecorderHandle, String> {
 }
 
 fn capture_thread(
+    buffer: Arc<Mutex<Vec<f32>>>,
     stop_rx: mpsc::Receiver<()>,
-    ready_tx: mpsc::Sender<Result<(), String>>,
+    ready_tx: mpsc::Sender<Result<u32, String>>,
     level: Arc<AtomicU32>,
 ) -> Result<RecordedAudio, String> {
-    let buffer: Arc<Mutex<Vec<f32>>> = Arc::new(Mutex::new(Vec::new()));
-
     let init = (|| -> Result<(cpal::Stream, u32), String> {
         let host = cpal::default_host();
         let device = host
@@ -124,7 +155,7 @@ fn capture_thread(
             Err(e)
         }
         Ok((stream, sample_rate)) => {
-            let _ = ready_tx.send(Ok(()));
+            let _ = ready_tx.send(Ok(sample_rate));
             // Block until stop is requested (or the handle is dropped).
             let _ = stop_rx.recv();
             drop(stream);
@@ -170,20 +201,42 @@ fn push_frames<I: Iterator<Item = f32>>(
 }
 
 /// Offline windowed-sinc resampler (Hann window, 48 taps). Good quality for
-/// speech and dependency-free; we only resample short dictation clips once.
+/// speech and dependency-free; used for the final batch transcription.
 pub fn resample(input: &[f32], from_rate: u32, to_rate: u32) -> Vec<f32> {
-    if from_rate == to_rate || input.is_empty() {
-        return input.to_vec();
+    let mut out = Vec::new();
+    resample_extend(input, from_rate, to_rate, &mut out);
+    out
+}
+
+/// Append newly available output samples for `input` into `out`.
+///
+/// `out` must already hold the prefix produced from an earlier prefix of the
+/// same `input` buffer (or be empty). Used by the live-preview loop so each
+/// tick only pays for the newly captured tail instead of re-filtering the
+/// whole clip.
+pub fn resample_extend(input: &[f32], from_rate: u32, to_rate: u32, out: &mut Vec<f32>) {
+    if input.is_empty() {
+        return;
+    }
+    if from_rate == to_rate {
+        if input.len() > out.len() {
+            out.extend_from_slice(&input[out.len()..]);
+        }
+        return;
     }
 
     let ratio = to_rate as f64 / from_rate as f64;
-    let out_len = (input.len() as f64 * ratio).floor() as usize;
+    let target_len = (input.len() as f64 * ratio).floor() as usize;
+    if target_len <= out.len() {
+        return;
+    }
+
     // Low-pass cutoff relative to the input Nyquist (only matters when downsampling).
     let cutoff = ratio.min(1.0);
     const HALF_TAPS: isize = 24;
 
-    let mut out = Vec::with_capacity(out_len);
-    for i in 0..out_len {
+    out.reserve(target_len - out.len());
+    for i in out.len()..target_len {
         let center = i as f64 / ratio;
         let left = center.floor() as isize - HALF_TAPS + 1;
 
@@ -211,7 +264,6 @@ pub fn resample(input: &[f32], from_rate: u32, to_rate: u32) -> Vec<f32> {
             0.0
         });
     }
-    out
 }
 
 #[cfg(test)]
@@ -231,5 +283,21 @@ mod tests {
         let out = resample(&input, 48_000, 16_000);
         let mid = out[out.len() / 2];
         assert!((mid - 0.5).abs() < 1e-3, "mid sample was {mid}");
+    }
+
+    #[test]
+    fn resample_extend_matches_one_shot_and_keeps_prefix_stable() {
+        let full_input: Vec<f32> = (0..48_000).map(|i| ((i as f32) * 0.001).sin()).collect();
+        let one_shot = resample(&full_input, 48_000, 16_000);
+
+        let mut out = Vec::new();
+        resample_extend(&full_input[..12_000], 48_000, 16_000, &mut out);
+        let first_chunk = resample(&full_input[..12_000], 48_000, 16_000);
+        assert_eq!(out, first_chunk);
+
+        let prefix = out.clone();
+        resample_extend(&full_input, 48_000, 16_000, &mut out);
+        assert_eq!(out.len(), one_shot.len());
+        assert_eq!(&out[..prefix.len()], &prefix[..], "already-emitted prefix must stay frozen");
     }
 }

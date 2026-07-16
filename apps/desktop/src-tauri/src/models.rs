@@ -247,6 +247,66 @@ pub fn is_downloaded(model_id: &str) -> bool {
         .is_some()
 }
 
+/// Relative cost of re-decoding a growing clip for the live preview.
+/// Lower is faster/lighter. `None` marks models that are too heavy to
+/// re-transcribe every few hundred milliseconds (they still work fine as the
+/// authoritative model on release, just not for the real-time preview).
+fn streaming_speed_rank(def: &ModelDef) -> Option<u32> {
+    match def.engine {
+        // CTC is non-autoregressive and the fastest to re-run.
+        Engine::NemoCtc => Some(0),
+        Engine::NemoTransducer => Some(1),
+        Engine::Whisper => match def.bytes_hint_total() {
+            0..=200_000_000 => Some(2),           // tiny / base
+            200_000_001..=600_000_000 => Some(3), // small / large-v3-turbo-q5
+            _ => None,                            // medium / large / podlodka — too slow
+        },
+    }
+}
+
+fn language_supported(def: &ModelDef, language: &str) -> bool {
+    if def.languages == "multilingual" {
+        return true;
+    }
+    // Unknown target language ("auto") should not penalize any model.
+    if language.is_empty() || language == "auto" {
+        return true;
+    }
+    def.languages.split(',').any(|code| code.trim() == language)
+}
+
+/// Picks the lightest *downloaded* model to drive the live preview, independent
+/// of the model selected for the final transcription. Preference order:
+/// language-compatible only, then fastest engine, then smallest download.
+/// Returns `None` when no downloaded model is both light enough and compatible
+/// with `language`.
+pub fn resolve_preview_model(language: &str) -> Option<String> {
+    pick_preview_model(
+        curated().iter().filter(|def| resolve_paths(def).is_some()),
+        language,
+    )
+    .map(|def| def.id.clone())
+}
+
+/// Pure selection core (FS-free) so unit tests can exercise language gating
+/// without touching the models directory.
+fn pick_preview_model<'a>(
+    candidates: impl Iterator<Item = &'a ModelDef>,
+    language: &str,
+) -> Option<&'a ModelDef> {
+    let mut eligible: Vec<(&ModelDef, u32)> = candidates
+        .filter(|def| language_supported(def, language))
+        .filter_map(|def| streaming_speed_rank(def).map(|rank| (def, rank)))
+        .collect();
+
+    eligible.sort_by(|a, b| {
+        a.1.cmp(&b.1)
+            .then(a.0.bytes_hint_total().cmp(&b.0.bytes_hint_total()))
+    });
+
+    eligible.first().map(|(def, _)| *def)
+}
+
 #[derive(Clone, Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ModelInfo {
@@ -368,6 +428,47 @@ pub async fn download_model(app: &AppHandle, model_id: String) -> Result<(), Str
     Ok(())
 }
 
+const VAD_MODEL_FILE: &str = "silero_vad.onnx";
+const VAD_MODEL_URL: &str =
+    "https://github.com/k2-fsa/sherpa-onnx/releases/download/asr-models/silero_vad.onnx";
+
+/// Local path of the Silero VAD model, if it has been downloaded.
+pub fn vad_model_path() -> Option<PathBuf> {
+    let path = models_dir()?.join(VAD_MODEL_FILE);
+    path.is_file().then_some(path)
+}
+
+/// Ensures the small (~2 MB) Silero VAD model used for live-preview speech
+/// segmentation is present, downloading it once if needed.
+pub async fn ensure_vad_model() -> Result<PathBuf, String> {
+    let dir = models_dir()
+        .map(Path::to_path_buf)
+        .ok_or_else(|| "models directory not initialized".to_string())?;
+    let dest = dir.join(VAD_MODEL_FILE);
+    if dest.is_file() {
+        return Ok(dest);
+    }
+
+    let _guard = DOWNLOAD_LOCK.lock().await;
+    if dest.is_file() {
+        return Ok(dest);
+    }
+    download_file(VAD_MODEL_URL, &dest, |_, _| {}).await?;
+    log::info!("[models] downloaded Silero VAD model");
+    Ok(dest)
+}
+
+/// Fetches the VAD model in the background so the live preview can use speech
+/// segmentation without blocking startup. Best-effort: failures just leave the
+/// preview on its timer-window fallback.
+pub fn prefetch_vad_model_in_background() {
+    tauri::async_runtime::spawn(async {
+        if let Err(e) = ensure_vad_model().await {
+            log::warn!("[models] VAD model prefetch failed: {e}");
+        }
+    });
+}
+
 pub fn delete_model(model_id: &str) -> Result<(), String> {
     let def = def_by_id(model_id).ok_or_else(|| format!("unknown model id: {model_id}"))?;
     let paths = resolve_paths(&def).ok_or_else(|| "model is not downloaded".to_string())?;
@@ -445,5 +546,63 @@ mod tests {
                 .all(|model| !model.id.contains("streaming")),
             "live/streaming ASR models should not be part of the curated catalog"
         );
+    }
+
+    fn rank(model_id: &str) -> Option<u32> {
+        streaming_speed_rank(&def_by_id(model_id).unwrap())
+    }
+
+    #[test]
+    fn sherpa_models_rank_faster_than_whisper_for_preview() {
+        assert_eq!(rank("gigaam-v3-e2e-ctc"), Some(0));
+        assert_eq!(rank("parakeet-tdt-0.6b-v3"), Some(1));
+        assert!(rank("tiny") > rank("gigaam-v3-e2e-ctc"));
+    }
+
+    #[test]
+    fn heavy_whisper_models_are_not_eligible_for_preview() {
+        assert_eq!(rank("medium"), None);
+        assert_eq!(rank("large-v3-turbo"), None);
+        assert_eq!(rank("whisper-podlodka-turbo"), None);
+    }
+
+    #[test]
+    fn light_whisper_models_are_eligible_for_preview() {
+        assert_eq!(rank("tiny"), Some(2));
+        assert_eq!(rank("base"), Some(2));
+        assert_eq!(rank("small"), Some(3));
+        assert_eq!(rank("large-v3-turbo-q5_0"), Some(3));
+    }
+
+    #[test]
+    fn language_support_matches_multilingual_auto_and_exact_codes() {
+        let gigaam = def_by_id("gigaam-v3-e2e-ctc").unwrap(); // "ru"
+        let parakeet = def_by_id("parakeet-tdt-0.6b-v3").unwrap(); // "multilingual"
+
+        assert!(language_supported(&gigaam, "ru"));
+        assert!(!language_supported(&gigaam, "en"));
+        assert!(language_supported(&gigaam, "auto"));
+        assert!(language_supported(&parakeet, "en"));
+        assert!(language_supported(&parakeet, "ru"));
+    }
+
+    #[test]
+    fn pick_preview_model_rejects_language_incompatible_candidates() {
+        let gigaam = def_by_id("gigaam-v3-e2e-ctc").unwrap();
+        assert!(pick_preview_model(std::iter::once(&gigaam), "en").is_none());
+        assert_eq!(
+            pick_preview_model(std::iter::once(&gigaam), "ru").map(|d| d.id.as_str()),
+            Some("gigaam-v3-e2e-ctc")
+        );
+    }
+
+    #[test]
+    fn pick_preview_model_prefers_faster_compatible_engine() {
+        let gigaam = def_by_id("gigaam-v3-e2e-ctc").unwrap();
+        let parakeet = def_by_id("parakeet-tdt-0.6b-v3").unwrap();
+        let tiny = def_by_id("tiny").unwrap();
+        let picked =
+            pick_preview_model([&gigaam, &parakeet, &tiny].into_iter(), "ru").unwrap();
+        assert_eq!(picked.id, "gigaam-v3-e2e-ctc");
     }
 }
