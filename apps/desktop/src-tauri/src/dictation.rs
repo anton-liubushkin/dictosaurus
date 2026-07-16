@@ -117,13 +117,6 @@ pub fn hotkey_pressed(app: &AppHandle) {
     let settings = state.settings.lock().unwrap().current().clone();
 
     if !models::is_downloaded(&settings.model_id) {
-        // Prefer any downloaded model only for preview; for start we still require
-        // the selected model OR any model — per spec: open Model setup.
-        if !models::any_model_downloaded() {
-            crate::tray::show_settings_section(app, "model");
-            return;
-        }
-        // selected model missing but another exists — still open Model pane
         crate::tray::show_settings_section(app, "model");
         return;
     }

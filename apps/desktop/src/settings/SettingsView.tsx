@@ -46,7 +46,6 @@ const UI_LANGUAGES = ["auto", "en", "ru"] as const;
 export type Progress = Record<string, DownloadProgress>;
 
 export default function SettingsView() {
-  const { t } = useTranslation("common");
   const [section, setSection] = useState<SettingsSection>("general");
   const [settings, setSettings] = useState<AppSettings | null>(null);
   const [models, setModels] = useState<ModelInfo[]>([]);

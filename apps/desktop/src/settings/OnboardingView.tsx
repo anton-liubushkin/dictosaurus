@@ -50,8 +50,12 @@ export default function OnboardingView({
 
   const finish = async () => {
     const next = { ...settings, onboardingCompleted: true };
-    await updateSettings(next);
-    onCompleted(next);
+    try {
+      await updateSettings(next);
+      onCompleted(next);
+    } catch (e) {
+      console.error(e);
+    }
   };
 
   return (
