@@ -247,6 +247,11 @@ pub fn is_downloaded(model_id: &str) -> bool {
         .is_some()
 }
 
+/// Whether at least one curated model has already been downloaded.
+pub fn any_model_downloaded() -> bool {
+    curated().iter().any(|def| resolve_paths(def).is_some())
+}
+
 /// Relative cost of re-decoding a growing clip for the live preview.
 /// Lower is faster/lighter. `None` marks models that are too heavy to
 /// re-transcribe every few hundred milliseconds (they still work fine as the

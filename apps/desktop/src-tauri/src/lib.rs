@@ -121,9 +121,17 @@ pub fn run() {
         .expect("error while building tauri application")
         .run(|app, event| {
             // Showing the window from `setup` is racy — the event loop is not
-            // ready yet and the window stays off-screen.
+            // ready yet and the window stays off-screen. Only surface it here
+            // if the user still needs to finish onboarding or grab a model;
+            // otherwise the app starts quietly in the tray.
             if let tauri::RunEvent::Ready = event {
-                tray::show_settings(app);
+                let state = app.state::<AppState>();
+                let settings = state.settings.lock().unwrap().current().clone();
+                let needs_setup =
+                    !settings.onboarding_completed || !models::any_model_downloaded();
+                if needs_setup {
+                    tray::show_settings(app);
+                }
             }
         });
 }

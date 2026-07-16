@@ -15,6 +15,8 @@ pub struct AppSettings {
     pub language: String,
     /// UI language preference: "auto", "en" or "ru".
     pub ui_language: String,
+    /// Set after first-run onboarding finishes or after minimum readiness dismiss.
+    pub onboarding_completed: bool,
 }
 
 impl Default for AppSettings {
@@ -24,6 +26,7 @@ impl Default for AppSettings {
             model_id: "base".into(),
             language: "auto".into(),
             ui_language: "auto".into(),
+            onboarding_completed: false,
         }
     }
 }
@@ -61,5 +64,30 @@ impl SettingsStore {
         std::fs::write(&self.path, raw).map_err(|e| format!("write settings: {e}"))?;
         self.current = settings;
         Ok(())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn default_onboarding_completed_is_false() {
+        let s = AppSettings::default();
+        assert!(!s.onboarding_completed);
+    }
+
+    #[test]
+    fn missing_onboarding_field_deserializes_to_false() {
+        let s: AppSettings = serde_json::from_str(
+            r#"{
+            "hotkey": "Alt+Space",
+            "modelId": "base",
+            "language": "auto",
+            "uiLanguage": "auto"
+        }"#,
+        )
+        .unwrap();
+        assert!(!s.onboarding_completed);
     }
 }

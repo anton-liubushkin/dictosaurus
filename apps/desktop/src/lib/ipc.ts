@@ -5,6 +5,7 @@ export type AppSettings = {
   modelId: string;
   language: string;
   uiLanguage: string;
+  onboardingCompleted: boolean;
 };
 
 export type DictionaryEntry = {
