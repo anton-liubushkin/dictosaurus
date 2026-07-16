@@ -208,8 +208,8 @@ pub fn hotkey_released(app: &AppHandle) {
                     log::warn!("[dictation] paste failed (text is in clipboard): {e}");
                 }
                 emit_state(&app, "inserted", Some(text), None);
-                // Long enough for the mascot's slide-out animation to play
-                // before the window is hidden.
+                // Long enough for the "Inserted" status to be visible before
+                // the HUD window is hidden.
                 finish(&app, 450).await;
             }
             Ok(None) => {

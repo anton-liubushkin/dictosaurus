@@ -10,11 +10,10 @@ use tauri::{AppHandle, Manager};
 
 pub const LABEL: &str = "overlay";
 // The window is transparent and click-through, so the extra area is invisible.
-const WIDTH: f64 = 560.0;
-// Live-preview text (up to ~4.5 lines ≈ 83px) + gap + visible mascot peek
-// (~167px, top 2/3 of the sprite). The content is bottom-aligned, so the extra
-// height is empty space above until the preview grows into it.
-const HEIGHT: f64 = 280.0;
+// Sized for the frosted HUD capsule: a pulse dot plus 2-3 lines of live
+// transcription text, bottom-aligned within the window.
+const WIDTH: f64 = 420.0;
+const HEIGHT: f64 = 120.0;
 const BOTTOM_MARGIN: f64 = 0.0;
 
 #[cfg(target_os = "macos")]
