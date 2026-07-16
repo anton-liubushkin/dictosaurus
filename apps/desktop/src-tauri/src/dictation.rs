@@ -117,14 +117,14 @@ pub fn hotkey_pressed(app: &AppHandle) {
     let settings = state.settings.lock().unwrap().current().clone();
 
     if !models::is_downloaded(&settings.model_id) {
-        crate::tray::show_settings(app);
-        emit_state(
-            app,
-            "error",
-            None,
-            Some("No speech model downloaded yet. Pick one in Settings.".into()),
-        );
-        flash_overlay(app, 2000);
+        // Prefer any downloaded model only for preview; for start we still require
+        // the selected model OR any model — per spec: open Model setup.
+        if !models::any_model_downloaded() {
+            crate::tray::show_settings_section(app, "model");
+            return;
+        }
+        // selected model missing but another exists — still open Model pane
+        crate::tray::show_settings_section(app, "model");
         return;
     }
 
@@ -143,8 +143,7 @@ pub fn hotkey_pressed(app: &AppHandle) {
             Err(e) => {
                 drop(inner);
                 log::warn!("[dictation] failed to start recording: {e}");
-                emit_state(app, "error", None, Some(format!("Microphone: {e}")));
-                flash_overlay(app, 2000);
+                crate::tray::show_settings_section(app, "permissions");
                 return;
             }
         }
@@ -551,17 +550,6 @@ async fn finish(app: &AppHandle, delay_ms: u64) {
 fn set_idle(app: &AppHandle) {
     let state = app.state::<AppState>();
     state.dictation.inner.lock().unwrap().phase = Phase::Idle;
-}
-
-/// Shows the overlay briefly (used for error feedback outside a session).
-fn flash_overlay(app: &AppHandle, ms: u64) {
-    let state = app.state::<AppState>();
-    let generation = state.dictation.generation.fetch_add(1, Ordering::SeqCst) + 1;
-    overlay::show(app);
-    let app = app.clone();
-    tauri::async_runtime::spawn(async move {
-        hide_overlay_after(app, ms, generation).await;
-    });
 }
 
 /// Hides the overlay after a delay, but only if no newer session/flash has

@@ -2,7 +2,7 @@
 
 use tauri::menu::{Menu, MenuItem, PredefinedMenuItem};
 use tauri::tray::TrayIconBuilder;
-use tauri::{AppHandle, Manager};
+use tauri::{AppHandle, Emitter, Manager};
 
 /// Resolves the "auto" UI language preference to a concrete tray language.
 /// Keeps it KISS: no OS locale APIs, just the `LANG` environment variable.
@@ -65,6 +65,11 @@ pub fn show_settings(app: &AppHandle) {
         let _ = window.unminimize();
         let _ = window.set_focus();
     }
+}
+
+pub fn show_settings_section(app: &AppHandle, section: &str) {
+    show_settings(app);
+    let _ = app.emit("settings-open-section", section);
 }
 
 #[cfg(test)]
