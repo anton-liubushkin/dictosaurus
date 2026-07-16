@@ -89,5 +89,20 @@
     "transcribing": "Распознаю…",
     "inserted": "Вставлено",
     "error": "Ошибка"
+  },
+  "onboarding": {
+    "title": "Добро пожаловать в Dictosaurus",
+    "stepPermissions": "Разрешения",
+    "stepModel": "Речевая модель",
+    "stepHotkey": "Хоткей",
+    "continue": "Далее",
+    "back": "Назад",
+    "finish": "Начать",
+    "skipReady": "Начать использовать Dictosaurus",
+    "needModel": "Скачайте модель, чтобы продолжить.",
+    "permissionsIntro": "Dictosaurus требуется пара разрешений для работы.",
+    "permissionsSkippable": "На этой платформе разрешения не требуются.",
+    "modelIntro": "Скачайте хотя бы одну речевую модель, чтобы начать диктовать.",
+    "hotkeyIntro": "Выберите горячую клавишу push-to-talk, которую вы будете удерживать при диктовке."
   }
 }

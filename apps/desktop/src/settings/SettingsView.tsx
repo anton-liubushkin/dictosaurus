@@ -21,6 +21,7 @@ import {
 import { UI_LANGUAGE_EVENT, applyUiLanguage } from "../i18n/i18n";
 import DictionarySection from "./DictionarySection";
 import HotkeyRecorder, { formatHotkey } from "./HotkeyRecorder";
+import OnboardingView from "./OnboardingView";
 import SettingsShell, { type SettingsSection } from "./SettingsShell";
 import chrome from "./settingsChrome.module.css";
 
@@ -42,7 +43,7 @@ const SPEECH_LANGUAGES: [string, string][] = [
 
 const UI_LANGUAGES = ["auto", "en", "ru"] as const;
 
-type Progress = Record<string, DownloadProgress>;
+export type Progress = Record<string, DownloadProgress>;
 
 export default function SettingsView() {
   const { t } = useTranslation("common");
@@ -88,6 +89,15 @@ export default function SettingsView() {
       unlisten.then((fn) => fn());
     };
   }, [refreshModels]);
+
+  useEffect(() => {
+    const unlisten = listen<SettingsSection>("settings-open-section", (event) => {
+      setSection(event.payload);
+    });
+    return () => {
+      unlisten.then((fn) => fn());
+    };
+  }, []);
 
   const save = useCallback(
     async (patch: Partial<AppSettings>) => {
@@ -145,8 +155,44 @@ export default function SettingsView() {
     }
   }, [autostart]);
 
+  const requestMic = useCallback(
+    () => requestMicrophonePermission().then(refreshPermissions),
+    [refreshPermissions],
+  );
+  const requestAx = useCallback(
+    () => requestAccessibilityPermission().then(refreshPermissions),
+    [refreshPermissions],
+  );
+  const selectModel = useCallback((modelId: string) => void save({ modelId }), [save]);
+  const removeModel = useCallback(
+    (modelId: string) => deleteModel(modelId).then(refreshModels).catch(console.error),
+    [refreshModels],
+  );
+  const changeHotkey = useCallback((hotkey: string) => void save({ hotkey }), [save]);
+
   if (!settings) {
     return <div className={chrome.shell} />;
+  }
+
+  if (!settings.onboardingCompleted) {
+    return (
+      <OnboardingView
+        settings={settings}
+        models={models}
+        progress={progress}
+        isMac={isMac}
+        micGranted={micGranted}
+        axGranted={axGranted}
+        hotkeyError={hotkeyError}
+        onRequestMic={requestMic}
+        onRequestAx={requestAx}
+        onDownloadModel={startDownload}
+        onSelectModel={selectModel}
+        onDeleteModel={removeModel}
+        onHotkeyChange={changeHotkey}
+        onCompleted={setSettings}
+      />
+    );
   }
 
   return (
@@ -166,18 +212,14 @@ export default function SettingsView() {
           models={models}
           activeModelId={settings.modelId}
           progress={progress}
-          onSelect={(modelId) => save({ modelId })}
+          onSelect={selectModel}
           onDownload={startDownload}
-          onDelete={(modelId) => deleteModel(modelId).then(refreshModels).catch(console.error)}
+          onDelete={removeModel}
         />
       )}
 
       {section === "hotkey" && (
-        <HotkeyPane
-          hotkey={settings.hotkey}
-          error={hotkeyError}
-          onChange={(hotkey) => save({ hotkey })}
-        />
+        <HotkeyPane hotkey={settings.hotkey} error={hotkeyError} onChange={changeHotkey} />
       )}
 
       {section === "vocabulary" && <VocabularyPane />}
@@ -186,8 +228,8 @@ export default function SettingsView() {
         <PermissionsPane
           micGranted={micGranted}
           axGranted={axGranted}
-          onRequestMic={() => requestMicrophonePermission().then(refreshPermissions)}
-          onRequestAx={() => requestAccessibilityPermission().then(refreshPermissions)}
+          onRequestMic={requestMic}
+          onRequestAx={requestAx}
         />
       )}
     </SettingsShell>
@@ -306,72 +348,89 @@ function HotkeyPane({
   );
 }
 
-function ModelPane({
-  models,
-  activeModelId,
-  progress,
-  onSelect,
-  onDownload,
-  onDelete,
-}: {
+export type ModelListProps = {
   models: ModelInfo[];
   activeModelId: string;
   progress: Progress;
   onSelect: (modelId: string) => void;
   onDownload: (modelId: string) => void;
   onDelete: (modelId: string) => void;
-}) {
+};
+
+export function ModelList({
+  models,
+  activeModelId,
+  progress,
+  onSelect,
+  onDownload,
+  onDelete,
+}: ModelListProps) {
+  return (
+    <div className={chrome.group}>
+      {models.map((model) => (
+        <ModelRow
+          key={model.id}
+          model={model}
+          active={activeModelId === model.id}
+          progress={progress[model.id]}
+          onSelect={() => onSelect(model.id)}
+          onDownload={() => onDownload(model.id)}
+          onDelete={() => onDelete(model.id)}
+        />
+      ))}
+    </div>
+  );
+}
+
+function ModelPane(props: ModelListProps) {
   const { t } = useTranslation("common");
   return (
     <>
       <h1 className={chrome.paneTitle}>{t("nav.model")}</h1>
       <p className={chrome.paneNote}>{t("models.note")}</p>
-      <div className={chrome.group}>
-        {models.map((model) => (
-          <ModelRow
-            key={model.id}
-            model={model}
-            active={activeModelId === model.id}
-            progress={progress[model.id]}
-            onSelect={() => onSelect(model.id)}
-            onDownload={() => onDownload(model.id)}
-            onDelete={() => onDelete(model.id)}
-          />
-        ))}
-      </div>
+      <ModelList {...props} />
     </>
   );
 }
 
-function PermissionsPane({
-  micGranted,
-  axGranted,
-  onRequestMic,
-  onRequestAx,
-}: {
+export type PermissionsListProps = {
   micGranted: boolean | null;
   axGranted: boolean | null;
   onRequestMic: () => void;
   onRequestAx: () => void;
-}) {
+};
+
+export function PermissionsList({
+  micGranted,
+  axGranted,
+  onRequestMic,
+  onRequestAx,
+}: PermissionsListProps) {
+  const { t } = useTranslation("common");
+  return (
+    <div className={chrome.group}>
+      <PermissionRow
+        name={t("permissions.microphone")}
+        detail={t("permissions.microphoneDetail")}
+        granted={micGranted}
+        onRequest={onRequestMic}
+      />
+      <PermissionRow
+        name={t("permissions.accessibility")}
+        detail={t("permissions.accessibilityDetail")}
+        granted={axGranted}
+        onRequest={onRequestAx}
+      />
+    </div>
+  );
+}
+
+function PermissionsPane(props: PermissionsListProps) {
   const { t } = useTranslation("common");
   return (
     <>
       <h1 className={chrome.paneTitle}>{t("nav.permissions")}</h1>
-      <div className={chrome.group}>
-        <PermissionRow
-          name={t("permissions.microphone")}
-          detail={t("permissions.microphoneDetail")}
-          granted={micGranted}
-          onRequest={onRequestMic}
-        />
-        <PermissionRow
-          name={t("permissions.accessibility")}
-          detail={t("permissions.accessibilityDetail")}
-          granted={axGranted}
-          onRequest={onRequestAx}
-        />
-      </div>
+      <PermissionsList {...props} />
     </>
   );
 }

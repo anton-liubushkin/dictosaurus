@@ -1,0 +1,72 @@
+.shell {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  height: 100%;
+  background: var(--bg);
+  padding: 24px;
+}
+
+.wizard {
+  display: flex;
+  width: 480px;
+  max-width: 100%;
+  flex-direction: column;
+  gap: 20px;
+}
+
+.title {
+  margin: 0;
+  font-size: 22px;
+  font-weight: 700;
+  letter-spacing: -0.02em;
+  text-align: center;
+}
+
+.steps {
+  display: flex;
+  justify-content: center;
+  gap: 28px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.stepDot {
+  padding-bottom: 6px;
+  border-bottom: 2px solid transparent;
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--text-secondary);
+}
+
+.stepDotActive {
+  border-bottom-color: var(--accent);
+  color: var(--text);
+}
+
+.stepDotDone {
+  color: var(--text);
+}
+
+.body {
+  min-height: 200px;
+}
+
+.hint {
+  margin: 10px 2px 0;
+  font-size: 12px;
+  color: var(--text-secondary);
+}
+
+.footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.footerSide {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}

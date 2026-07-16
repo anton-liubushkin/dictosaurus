@@ -89,5 +89,20 @@
     "transcribing": "Transcribing…",
     "inserted": "Inserted",
     "error": "Error"
+  },
+  "onboarding": {
+    "title": "Welcome to Dictosaurus",
+    "stepPermissions": "Permissions",
+    "stepModel": "Speech model",
+    "stepHotkey": "Hotkey",
+    "continue": "Continue",
+    "back": "Back",
+    "finish": "Get started",
+    "skipReady": "Start using Dictosaurus",
+    "needModel": "Download a model to continue.",
+    "permissionsIntro": "Dictosaurus needs a couple of permissions to work.",
+    "permissionsSkippable": "No permissions are required on this platform.",
+    "modelIntro": "Download at least one speech model to start dictating.",
+    "hotkeyIntro": "Choose the push-to-talk hotkey you'll hold to dictate."
   }
 }
