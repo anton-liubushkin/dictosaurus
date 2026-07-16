@@ -148,29 +148,6 @@
   cursor: default;
 }
 
-.hotkeyButton {
-  min-width: 220px;
-  padding: 6px 12px;
-  border-radius: 6px;
-  border: 1px solid var(--separator);
-  background: var(--control-fill);
-  color: var(--text);
-  font-size: 13px;
-  font-weight: 500;
-  cursor: default;
-}
-
-.hotkeyButton:hover {
-  border-color: var(--accent);
-}
-
-.hotkeyCapturing {
-  border-color: var(--accent);
-  box-shadow: 0 0 0 3px rgba(10, 132, 255, 0.2);
-  color: var(--text-secondary);
-  font-weight: 400;
-}
-
 /* 40×22 track, white knob — AppKit-like; uses --accent when on */
 .toggle {
   position: relative;

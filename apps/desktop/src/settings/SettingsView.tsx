@@ -180,7 +180,7 @@ export default function SettingsView() {
         />
       )}
 
-      {section === "vocabulary" && <DictionarySection />}
+      {section === "vocabulary" && <VocabularyPane />}
 
       {section === "permissions" && isMac && (
         <PermissionsPane
@@ -265,6 +265,16 @@ function GeneralPane({
           </button>
         </div>
       </div>
+    </>
+  );
+}
+
+function VocabularyPane() {
+  const { t } = useTranslation("common");
+  return (
+    <>
+      <h1 className={chrome.paneTitle}>{t("nav.vocabulary")}</h1>
+      <DictionarySection />
     </>
   );
 }

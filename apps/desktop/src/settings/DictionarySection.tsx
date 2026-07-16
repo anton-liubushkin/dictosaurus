@@ -255,9 +255,7 @@ export default function DictionarySection() {
   );
 
   return (
-    <section className={sharedStyles.section}>
-      <h2 className={sharedStyles.sectionTitle}>{t("section.dictionary")}</h2>
-      <div className={sharedStyles.card}>
+    <div className={sharedStyles.card}>
         {loadState === "loading" && (
           <p className={styles.stateMessage}>{t("dictionary.loading")}</p>
         )}
@@ -354,8 +352,7 @@ export default function DictionarySection() {
             </div>
           </>
         )}
-      </div>
-    </section>
+    </div>
   );
 }
 

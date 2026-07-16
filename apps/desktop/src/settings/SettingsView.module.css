@@ -3,19 +3,6 @@
  * their own grouped-list markup outside of SettingsShell's panes.
  */
 
-.section {
-  margin-bottom: 26px;
-}
-
-.sectionTitle {
-  margin: 0 0 10px;
-  font-size: 13px;
-  font-weight: 600;
-  text-transform: uppercase;
-  letter-spacing: 0.06em;
-  color: var(--text-secondary);
-}
-
 .card {
   background: var(--bg-grouped);
   border-radius: 10px;
