@@ -21,7 +21,7 @@ export default function App() {
     return () => {
       unlisten.then((fn) => fn());
     };
-  }, []);
+  }, [mode]);
 
   return mode === "overlay" ? <Overlay /> : <SettingsView />;
 }
