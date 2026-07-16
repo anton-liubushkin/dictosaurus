@@ -11,8 +11,10 @@ use tauri::{AppHandle, Manager};
 pub const LABEL: &str = "overlay";
 // The window is transparent and click-through, so the extra area is invisible.
 const WIDTH: f64 = 560.0;
-// Label (~20px) + gap + visible mascot peek (~167px, top 2/3 of the sprite).
-const HEIGHT: f64 = 200.0;
+// Live-preview text (up to ~4.5 lines ≈ 83px) + gap + visible mascot peek
+// (~167px, top 2/3 of the sprite). The content is bottom-aligned, so the extra
+// height is empty space above until the preview grows into it.
+const HEIGHT: f64 = 280.0;
 const BOTTOM_MARGIN: f64 = 0.0;
 
 #[cfg(target_os = "macos")]

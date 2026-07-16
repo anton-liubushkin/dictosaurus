@@ -53,6 +53,12 @@ struct StatePayload {
 const STATE_EVENT: &str = "dictation-state";
 const LEVEL_EVENT: &str = "audio-level";
 const MAX_NATIVE_VOCABULARY_HINT_BYTES: usize = 1024;
+/// Minimum audio (in seconds) buffered before the first live-preview decode.
+const PREVIEW_MIN_SECONDS: f32 = 0.4;
+/// Only the most recent window of audio is re-decoded for the preview, so its
+/// cadence stays constant regardless of how long the user keeps speaking (the
+/// final transcription on release still covers the whole clip).
+const PREVIEW_WINDOW_SECONDS: f32 = 10.0;
 
 fn dictionary_snapshot(dictionary: &Mutex<DictionaryStore>) -> Option<DictionarySnapshot> {
     match dictionary.lock() {
@@ -145,10 +151,27 @@ pub fn hotkey_pressed(app: &AppHandle) {
     }
 
     state.dictation.generation.fetch_add(1, Ordering::SeqCst);
+    let generation = state.dictation.generation.load(Ordering::SeqCst);
     log::info!("[dictation] recording started");
     emit_state(app, "recording", None, None);
     overlay::show(app);
     spawn_level_task(app.clone());
+
+    // Real-time preview always runs through the lightest downloaded model,
+    // even when the final transcription uses a heavier one (e.g. large Whisper).
+    if let Some(preview_model) = models::resolve_preview_model(&settings.language) {
+        let uses_main_model = preview_model == settings.model_id;
+        spawn_preview_task(
+            app.clone(),
+            generation,
+            preview_model,
+            settings.language.clone(),
+            uses_main_model,
+            dictionary_snapshot(&state.dictionary),
+        );
+    } else {
+        log::debug!("[dictation] no light model downloaded; live preview disabled");
+    }
 }
 
 pub fn hotkey_released(app: &AppHandle) {
@@ -234,6 +257,263 @@ fn run_pipeline(
         vocabulary_hints: &vocabulary_hints,
     })?;
     Ok(post_process_transcription(&text, dictionary.as_ref()))
+}
+
+/// Preview re-decode cadence, tuned per engine (lighter engines can afford a
+/// tighter interval).
+fn preview_interval(model_id: &str) -> Duration {
+    match models::def_by_id(model_id).map(|def| def.engine) {
+        Some(models::Engine::NemoCtc) => Duration::from_millis(400),
+        Some(models::Engine::NemoTransducer) => Duration::from_millis(500),
+        _ => Duration::from_millis(800), // whisper
+    }
+}
+
+/// Cadence of the VAD-driven preview loop. Feeding the detector is cheap; the
+/// only per-tick cost is decoding the short in-progress tail.
+const VAD_PREVIEW_TICK: Duration = Duration::from_millis(250);
+/// Upper bound (seconds) on the live tail decoded for the current utterance, so
+/// a single non-stop utterance can never make the per-tick decode unbounded.
+const VAD_TAIL_MAX_SECONDS: f32 = 16.0;
+
+/// Decodes a 16 kHz mono clip with the resolved preview model (or the shared
+/// final model when the preview reuses it).
+fn decode_preview(
+    uses_main_model: bool,
+    model_id: &str,
+    language: &str,
+    pcm: &[f32],
+) -> Result<String, String> {
+    if uses_main_model {
+        transcribe::transcribe(transcribe::TranscriptionRequest {
+            model_id,
+            language,
+            pcm,
+            vocabulary_hints: "",
+        })
+    } else {
+        transcribe::transcribe_preview(model_id, language, pcm)
+    }
+}
+
+/// Emits a preview update only while this session is still the active
+/// recording. Holds the dictation lock across the phase check and the emit so
+/// a concurrent release cannot slip a `"transcribing"` event in between and
+/// then get overwritten by a stale `"recording"` payload.
+fn emit_preview_text(app: &AppHandle, generation: u64, text: String) -> bool {
+    let state = app.state::<AppState>();
+    let inner = state.dictation.inner.lock().unwrap();
+    if inner.phase != Phase::Recording {
+        return false;
+    }
+    if state.dictation.generation.load(Ordering::SeqCst) != generation {
+        return false;
+    }
+    let _ = app.emit(
+        STATE_EVENT,
+        StatePayload {
+            phase: "recording",
+            text: Some(text),
+            message: None,
+        },
+    );
+    true
+}
+
+/// Live-preview driver: pushes partial transcripts into the overlay while the
+/// user keeps speaking. Runs on a dedicated blocking thread and self-terminates
+/// once the session leaves the `Recording` phase.
+///
+/// Prefers VAD segmentation (natural pauses commit completed utterances so they
+/// never scroll out of view) and falls back to a plain timer window until the
+/// small Silero VAD model has finished downloading.
+fn spawn_preview_task(
+    app: AppHandle,
+    generation: u64,
+    preview_model_id: String,
+    language: String,
+    uses_main_model: bool,
+    dictionary: Option<DictionarySnapshot>,
+) {
+    if let Err(e) = std::thread::Builder::new()
+        .name("dictation-preview".into())
+        .spawn(move || {
+            let dictionary = dictionary.as_ref();
+            match transcribe::create_vad() {
+                Some(vad) => run_vad_preview(
+                    &app,
+                    generation,
+                    vad,
+                    &preview_model_id,
+                    &language,
+                    uses_main_model,
+                    dictionary,
+                ),
+                None => run_windowed_preview(
+                    &app,
+                    generation,
+                    &preview_model_id,
+                    &language,
+                    uses_main_model,
+                    dictionary,
+                ),
+            }
+        })
+    {
+        log::warn!("[dictation] failed to spawn preview thread: {e}");
+    }
+}
+
+/// VAD-based preview: completed speech segments are decoded once and kept as a
+/// stable committed transcript; only the current in-progress utterance is
+/// re-decoded each tick. Silence between utterances is never decoded, so the
+/// text stays put across pauses instead of scrolling out of a fixed window.
+fn run_vad_preview(
+    app: &AppHandle,
+    generation: u64,
+    vad: sherpa_onnx::VoiceActivityDetector,
+    model_id: &str,
+    language: &str,
+    uses_main_model: bool,
+    dictionary: Option<&DictionarySnapshot>,
+) {
+    let tail_cap = (16_000.0 * VAD_TAIL_MAX_SECONDS) as usize;
+    // Native mono samples accumulated in this thread (only new tails are copied
+    // under the capture lock each tick).
+    let mut native: Vec<f32> = Vec::new();
+    let mut native_seen: usize = 0;
+    let mut resampled: Vec<f32> = Vec::new();
+    // How much of the resampled stream has already been handed to the detector.
+    let mut fed: usize = 0;
+    // End (in 16 kHz samples) of the last committed segment == start of the tail.
+    let mut committed_end: usize = 0;
+    let mut committed = String::new();
+
+    loop {
+        let sample_rate = {
+            let state = app.state::<AppState>();
+            let inner = state.dictation.inner.lock().unwrap();
+            if inner.phase != Phase::Recording
+                || state.dictation.generation.load(Ordering::SeqCst) != generation
+            {
+                break;
+            }
+            let Some(recorder) = inner.recorder.as_ref() else {
+                break;
+            };
+            let chunk = recorder.copy_from(native_seen);
+            let rate = recorder.sample_rate();
+            drop(inner);
+            if !chunk.is_empty() {
+                native_seen += chunk.len();
+                native.extend(chunk);
+            }
+            rate
+        };
+
+        // Only the newly arrived native samples are filtered into `resampled`.
+        audio::resample_extend(&native, sample_rate, 16_000, &mut resampled);
+        if resampled.len() > fed {
+            vad.accept_waveform(&resampled[fed..]);
+            fed = resampled.len();
+        }
+
+        // Drain utterances the detector finished (on silence or the max-speech
+        // cap) and fold them into the committed transcript exactly once each.
+        while let Some(segment) = vad.front() {
+            let seg_pcm = segment.samples().to_vec();
+            let seg_end = (segment.start() + segment.n()).max(0) as usize;
+            drop(segment);
+            vad.pop();
+
+            if let Ok(raw) = decode_preview(uses_main_model, model_id, language, &seg_pcm) {
+                if let Some(piece) = post_process_transcription(&raw, dictionary) {
+                    if !committed.is_empty() {
+                        committed.push(' ');
+                    }
+                    committed.push_str(&piece);
+                }
+            }
+            committed_end = committed_end.max(seg_end);
+        }
+
+        // Live tail: only while speech is active, and bounded to the most recent
+        // window so one endless utterance can't grow the decode cost.
+        let mut tail = String::new();
+        if vad.detected() {
+            let tail_start = committed_end.max(resampled.len().saturating_sub(tail_cap));
+            if resampled.len() > tail_start {
+                if let Ok(raw) =
+                    decode_preview(uses_main_model, model_id, language, &resampled[tail_start..])
+                {
+                    if let Some(piece) = post_process_transcription(&raw, dictionary) {
+                        tail = piece;
+                    }
+                }
+            }
+        }
+
+        let combined = match (committed.is_empty(), tail.is_empty()) {
+            (true, true) => None,
+            (true, false) => Some(tail),
+            (false, true) => Some(committed.clone()),
+            (false, false) => Some(format!("{committed} {tail}")),
+        };
+        if let Some(text) = combined {
+            if !emit_preview_text(app, generation, text) {
+                break;
+            }
+        }
+
+        std::thread::sleep(VAD_PREVIEW_TICK);
+    }
+}
+
+/// Fallback preview used until the VAD model is available: re-decode only the
+/// most recent fixed window so the cadence stays constant for long utterances.
+fn run_windowed_preview(
+    app: &AppHandle,
+    generation: u64,
+    model_id: &str,
+    language: &str,
+    uses_main_model: bool,
+    dictionary: Option<&DictionarySnapshot>,
+) {
+    let interval = preview_interval(model_id);
+    loop {
+        let pending = {
+            let state = app.state::<AppState>();
+            let inner = state.dictation.inner.lock().unwrap();
+            if inner.phase != Phase::Recording
+                || state.dictation.generation.load(Ordering::SeqCst) != generation
+            {
+                break;
+            }
+            inner.recorder.as_ref().and_then(|recorder| {
+                let sample_rate = recorder.sample_rate();
+                let min_samples = (sample_rate as f32 * PREVIEW_MIN_SECONDS) as usize;
+                let window = (sample_rate as f32 * PREVIEW_WINDOW_SECONDS) as usize;
+                let samples = recorder.snapshot_tail(window);
+                (samples.len() >= min_samples).then_some((samples, sample_rate))
+            })
+        };
+
+        if let Some((samples, sample_rate)) = pending {
+            let pcm = audio::resample(&samples, sample_rate, 16_000);
+            match decode_preview(uses_main_model, model_id, language, &pcm) {
+                Ok(raw) => {
+                    if let Some(text) = post_process_transcription(&raw, dictionary) {
+                        if !emit_preview_text(app, generation, text) {
+                            break;
+                        }
+                    }
+                }
+                Err(e) => log::debug!("[dictation] preview decode failed: {e}"),
+            }
+        }
+
+        std::thread::sleep(interval);
+    }
 }
 
 fn spawn_level_task(app: AppHandle) {

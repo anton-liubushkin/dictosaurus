@@ -24,3 +24,31 @@
     0 1px 3px rgba(0, 0, 0, 0.8),
     0 0 12px rgba(0, 0, 0, 0.5);
 }
+
+/* Live transcription viewport: grows up to ~4.5 lines. The text is bottom-
+   aligned and overflows past the top edge, so the most recent words stay
+   visible next to the mascot while earlier lines scroll up out of view. */
+.previewViewport {
+  max-width: 460px;
+  max-height: 6.1em; /* ~4.5 lines at the line-height below */
+  margin-bottom: 4px;
+  display: flex;
+  flex-direction: column;
+  justify-content: flex-end;
+  overflow: hidden;
+  /* Older lines near the top fade to transparent. */
+  -webkit-mask-image: linear-gradient(to top, #000 55%, transparent 100%);
+  mask-image: linear-gradient(to top, #000 55%, transparent 100%);
+}
+
+.previewText {
+  font-size: 13px;
+  line-height: 1.35;
+  font-weight: 600;
+  text-align: center;
+  overflow-wrap: anywhere;
+  color: rgba(255, 255, 255, 0.98);
+  text-shadow:
+    0 1px 3px rgba(0, 0, 0, 0.8),
+    0 0 12px rgba(0, 0, 0, 0.5);
+}
